@@ -1,0 +1,86 @@
+name: Release CLI
+
+# Triggered by the CLI release tag (cli-v*) that the monorepo mirror pushes
+# here. Versioning happens in the internal monorepo (Nx release); this
+# workflow only builds and publishes the already-versioned cli/ source.
+
+on:
+  push:
+    tags:
+      - "cli-v*"
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write # npm Trusted Publishing (OIDC)
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: v
+        run: |
+          TAG="${GITHUB_REF_NAME}"                 # e.g. cli-v0.1.2
+          echo "version=${TAG#cli-v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: cli/go.sum
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # No LLM/API key: GoReleaser auto-generates the changelog from git
+      # commits. For curated notes, edit the GitHub Release afterward (e.g.
+      # ask Claude Code in the monorepo to draft them from the diff).
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          # --skip=validate: OSS GoReleaser rejects the cli-v* tag as non-semver;
+          # clean VERSION is threaded through ldflags / templates instead.
+          args: release --clean --skip=validate
+          workdir: cli
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.v.outputs.version }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted Publishing (OIDC) — no NPM_TOKEN. publish-npm.mjs shells out to
+      # `npm publish` per package, so it needs npm >= 11.5.1 (newer than the
+      # npm bundled with Node 20). Every published package
+      # (@spanly/spanly + @spanly/spanly-{os}-{arch}) must have a trusted
+      # publisher configured on npm — see tools/MIRROR_SETUP.md.
+      - name: Publish to npm
+        working-directory: cli
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          npm install -g npm@latest
+          node scripts/publish-npm.mjs

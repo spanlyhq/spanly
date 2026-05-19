@@ -1,0 +1,20 @@
+# Node
+node_modules/
+dist/
+dist-npm/
+out-tsc/
+test-output/
+*.tsbuildinfo
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+build/
+*.egg-info/
+
+# Go
+cli/dist/
+
+# Misc
+.DS_Store

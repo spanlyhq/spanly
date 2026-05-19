@@ -1,0 +1,6 @@
+dist/
+dist-npm/
+.goreleaser.yaml
+*.md
+PLAN.md
+*_test.go

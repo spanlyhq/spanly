@@ -1,0 +1,61 @@
+name: CI
+
+# Public-repo CI. Runs on PRs and on the mirror's pushes to main.
+# Each artifact builds independently — no Nx, no monorepo.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  js:
+    name: JS SDK (@spanly/sdk)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: js
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run build
+      - run: npm run lint
+      - run: npm test
+
+  python:
+    name: Python SDK (spanly)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - run: uv venv && uv pip install -e '.[dev,mcp]'
+      - run: .venv/bin/python -m pytest tests/ -v
+
+  cli:
+    name: CLI (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: cli/go.sum
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...

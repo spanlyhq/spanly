@@ -1,0 +1,62 @@
+name: Release SDKs
+
+# Triggered by the SDK release tag (v*) that the monorepo mirror pushes here.
+# Versioning happens in the internal monorepo (Nx release); this workflow only
+# publishes the already-versioned js/ and python/ sources.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tooling
+        run: pip install build
+
+      # Trusted Publishing (OIDC) — no NPM_TOKEN. Requires npm >= 11.5.1, which
+      # is newer than the npm bundled with Node 20.
+      - name: Build & publish @spanly/sdk to npm
+        working-directory: js
+        run: |
+          npm install -g npm@latest
+          npm install
+          npm run build
+          npm publish --access public
+
+      - name: Build spanly distribution
+        working-directory: python
+        run: python -m build
+
+      # Trusted Publishing (OIDC) — no PYPI_TOKEN.
+      - name: Publish spanly to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: python/dist
+
+      # GitHub-native release notes (auto-built from commits/PRs since the last
+      # tag) — no API key. For curated notes, edit the release afterward (e.g.
+      # ask Claude Code in the monorepo to draft them from the diff).
+      - name: Create GitHub Release
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,11 @@
+# GoReleaser-specific Dockerfile.
+#
+# GoReleaser already produces the binary in the build context, so this
+# image only copies it into a minimal distroless runtime — no Go
+# toolchain required at image-build time. The hand-written Dockerfile
+# (./Dockerfile) is the source of truth for local builds.
+FROM gcr.io/distroless/static:nonroot
+
+COPY spanly /usr/local/bin/spanly
+
+ENTRYPOINT ["/usr/local/bin/spanly"]

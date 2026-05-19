@@ -1,0 +1,76 @@
+# @spanly/sdk
+
+TypeScript SDK for [Spanly](https://spanly.dev) — observability for MCP
+(Model Context Protocol) servers and AI agents.
+
+Wrap your MCP server in one line and Spanly captures every tool call,
+prompt, resource access, and JSON-RPC packet, with full traces and timings.
+
+## When to use the SDK vs the CLI
+
+For most users the **CLI** (`@spanly/spanly`) is the easiest onramp — it
+wraps your MCP server with zero code changes and works in any language:
+
+```bash
+npx -y @spanly/spanly run -- node ./server.js
+```
+
+Reach for **this SDK** when you need any of:
+
+- **Per-request hooks** (`onCollect`, `onError`) — mutate or filter
+  packets, attach custom context, drop traffic by predicate.
+- **Per-request multi-tenant tagging** beyond what `--context-header`
+  covers (e.g. extract tenant from auth tokens, JWT claims, request
+  body, application-level state).
+- **In-process embedding** — no extra binary, no extra container, no
+  process supervision.
+- **Test integration** — direct control over the monitor lifecycle from
+  Jest / Vitest setups.
+
+If none of those apply, prefer the CLI.
+
+## Install
+
+```bash
+npm install @spanly/sdk
+# or: pnpm add @spanly/sdk / yarn add @spanly/sdk / bun add @spanly/sdk
+```
+
+## Usage
+
+```ts
+import { SpanlyClient } from '@spanly/sdk';
+
+const spanly = new SpanlyClient({
+  apiKey: process.env.SPANLY_API_KEY,
+});
+
+spanly.monitor(mcpServer);
+```
+
+That's it — all MCP traffic on `mcpServer` is now reported to your
+Spanly project.
+
+Get an API key by signing up at [spanly.dev](https://spanly.dev) and
+creating a project.
+
+### Per-request hooks
+
+```ts
+spanly.monitor(mcpServer, {
+  onCollect: (direction, context, mcpPacket) => {
+    // attach tenant from the active request scope
+    context.environmentId = currentTenantId();
+    // drop sensitive tools entirely
+    if (looksSensitive(mcpPacket)) return null;
+    return mcpPacket;
+  },
+  onError: (err) => log.error('spanly:', err),
+});
+```
+
+## Links
+
+- [spanly.dev](https://spanly.dev)
+- [Spanly CLI (`@spanly/spanly`)](https://github.com/spanlyhq/spanly/tree/main/cli) — `run` + `proxy` modes for any language.
+- [Python SDK (`spanly`)](https://pypi.org/project/spanly/)
