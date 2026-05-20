@@ -13,8 +13,8 @@ import { z } from 'zod';
 export type SpanlyRegion = 'us' | 'eu';
 
 const DEFAULT_INGEST_URLS: Record<SpanlyRegion, string> = {
-  us: 'https://ingest-us.spanly.dev',
-  eu: 'https://ingest-eu.spanly.dev',
+  us: 'https://ingest.us.spanly.com',
+  eu: 'https://ingest.eu.spanly.com',
 };
 
 function parseRegionFromApiKey(apiKey: string): SpanlyRegion {

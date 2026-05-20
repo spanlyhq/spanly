@@ -7,7 +7,7 @@
     "type": "git",
     "url": "https://github.com/spanlyhq/spanly.git"
   },
-  "homepage": "https://spanly.dev",
+  "homepage": "https://spanly.com",
   "workspaces": [
     "js"
   ],

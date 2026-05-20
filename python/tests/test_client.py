@@ -44,12 +44,12 @@ def test_client_uses_env_api_key():
 
 def test_client_default_url_us():
     client = SpanlyClient(api_key="spanly_us_test")
-    assert client.url == "https://ingest-us.spanly.dev"
+    assert client.url == "https://ingest.us.spanly.com"
 
 
 def test_client_default_url_eu():
     client = SpanlyClient(api_key="spanly_eu_test")
-    assert client.url == "https://ingest-eu.spanly.dev"
+    assert client.url == "https://ingest.eu.spanly.com"
 
 
 def test_client_custom_ingest_url():

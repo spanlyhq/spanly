@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	defaultIngestURLUS = "https://ingest-us.spanly.dev"
-	defaultIngestURLEU = "https://ingest-eu.spanly.dev"
+	defaultIngestURLUS = "https://ingest.us.spanly.com"
+	defaultIngestURLEU = "https://ingest.eu.spanly.com"
 	collectPath        = "/collect"
 	collectTimeout     = 5 * time.Second
 

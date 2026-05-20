@@ -100,7 +100,7 @@ brews:
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Formula
-    homepage: "https://spanly.dev"
+    homepage: "https://spanly.com"
     description: "Spanly CLI — observability for MCP servers (run + proxy modes)"
     install: |
       bin.install "spanly"

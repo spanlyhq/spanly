@@ -1,7 +1,7 @@
 # spanly — observability CLI for MCP servers
 
 A small Go binary that captures traffic from your MCP server and ships it
-to [Spanly](https://spanly.dev). Two modes:
+to [Spanly](https://spanly.com). Two modes:
 
 - **`spanly run -- <cmd>`** — wraps a child MCP server you start.
   Works for both **stdio** and **HTTP** transports. Zero code change,

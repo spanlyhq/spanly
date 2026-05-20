@@ -20,8 +20,8 @@ logger = logging.getLogger("spanly")
 SpanlyRegion = Literal["us", "eu"]
 
 DEFAULT_INGEST_URLS: dict[SpanlyRegion, str] = {
-    "us": "https://ingest-us.spanly.dev",
-    "eu": "https://ingest-eu.spanly.dev",
+    "us": "https://ingest.us.spanly.com",
+    "eu": "https://ingest.eu.spanly.com",
 }
 
 

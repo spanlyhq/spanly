@@ -1,6 +1,6 @@
 # Spanly
 
-Open-source SDKs and CLI for [Spanly](https://spanly.dev) — observability for
+Open-source SDKs and CLI for [Spanly](https://spanly.com) — observability for
 MCP (Model Context Protocol) servers and AI agents.
 
 This repository contains three independently versioned and published artifacts:

@@ -26,7 +26,7 @@ const OUT_DIR = path.join(CLI_DIR, 'dist-npm');
 const WRAPPER_NAME = '@spanly/spanly';
 const BIN_NAME = 'spanly';
 const REPOSITORY = 'https://github.com/spanlyhq/spanly';
-const HOMEPAGE = 'https://spanly.dev';
+const HOMEPAGE = 'https://spanly.com';
 
 const VERSION = process.env.VERSION;
 if (!VERSION) {
