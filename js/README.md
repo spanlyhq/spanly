@@ -4,7 +4,7 @@ TypeScript SDK for [Spanly](https://spanly.dev) — observability for MCP
 (Model Context Protocol) servers and AI agents.
 
 Wrap your MCP server in one line and Spanly captures every tool call,
-prompt, resource access, and JSON-RPC packet, with full traces and timings.
+prompt, resource access, and JSON-RPC packet, with full requests and timings.
 
 ## When to use the SDK vs the CLI
 

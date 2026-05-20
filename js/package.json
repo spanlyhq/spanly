@@ -38,6 +38,12 @@
   },
   "nx": {
     "targets": {
+      "build": {
+        "outputs": [
+          "{projectRoot}/dist/**/*.{js,cjs,mjs,jsx,d.ts,d.cts,d.mts}{,.map}",
+          "{projectRoot}/dist/tsconfig.lib.tsbuildinfo"
+        ]
+      },
       "test": {
         "options": {
           "passWithNoTests": true
