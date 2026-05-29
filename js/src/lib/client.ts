@@ -28,6 +28,39 @@ export interface SpanlyClientOptions {
   apiKey?: string;
 }
 
+// 503-only retry config. The ingest server returns 503 + Retry-After when
+// the in-flight queue is past its watermark; we back off and try again
+// rather than dropping the packet (which used to be the default behavior
+// before the batching pipeline went live).
+const COLLECT_MAX_ATTEMPTS = Number(process.env['SPANLY_COLLECT_MAX_ATTEMPTS']) || 4;
+const COLLECT_BACKOFF_BASE_MS = 500;
+const COLLECT_BACKOFF_MAX_MS = 5_000;
+
+// Parse a Retry-After header. Seconds-form first, then HTTP-date fallback.
+// Returns ms to wait, or undefined when the header is missing or unparseable.
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return seconds * 1000;
+  }
+  const date = Date.parse(value);
+  if (!Number.isNaN(date)) {
+    return Math.max(0, date - Date.now());
+  }
+  return undefined;
+}
+
+function backoffDelayMs(attempt: number): number {
+  const base = Math.min(COLLECT_BACKOFF_BASE_MS * 2 ** attempt, COLLECT_BACKOFF_MAX_MS);
+  const jitter = base * 0.2 * (Math.random() * 2 - 1); // ±20%
+  return Math.max(0, Math.floor(base + jitter));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 const collectWarningSchema = z.object({
   code: z.string(),
   message: z.string(),
@@ -226,17 +259,31 @@ export class SpanlyClient {
     };
 
     const url = new URL(`/collect`, this.url);
-    const result = await fetch(url.toString(), {
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      method: 'POST',
-      body: JSON.stringify(spanlyPacket),
-    });
+    const requestBody = JSON.stringify(spanlyPacket);
 
-    if (!result.ok) {
-      throw new Error(`Failed to collect MCP packet: ${result.statusText}`);
+    // Retry on 503 only, honoring Retry-After. Other non-2xx statuses and
+    // network errors keep the prior behavior (throw immediately) so users
+    // who wired `onError` don't see new retry semantics for unrelated
+    // failure modes.
+    let result: Response | undefined;
+    for (let attempt = 0; attempt < COLLECT_MAX_ATTEMPTS; attempt++) {
+      result = await fetch(url.toString(), {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        method: 'POST',
+        body: requestBody,
+      });
+      if (result.status !== 503) break;
+      if (attempt === COLLECT_MAX_ATTEMPTS - 1) break;
+      const retryAfterMs =
+        parseRetryAfter(result.headers.get('Retry-After')) ?? backoffDelayMs(attempt);
+      await sleep(retryAfterMs);
+    }
+
+    if (!result || !result.ok) {
+      throw new Error(`Failed to collect MCP packet: ${result?.statusText ?? 'unknown'}`);
     }
 
     const parsedResult = collectResultSchema.parse(await result.json());
