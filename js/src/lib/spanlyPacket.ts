@@ -19,6 +19,8 @@ export const spanlyPacketTransportContextHttpSchema = z.object({
   httpMethod: z.enum(['get', 'post', 'delete']),
   path: z.string(),
   headers: z.record(z.string(), z.string()),
+  remoteAddress: z.string().optional(),
+  remotePort: z.number().optional(),
 });
 
 export type SpanlyPacketTransportContextHttp = z.infer<

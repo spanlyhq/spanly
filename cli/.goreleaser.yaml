@@ -60,7 +60,7 @@ dockers:
       - "--label=org.opencontainers.image.title=spanly"
       - "--label=org.opencontainers.image.source=https://github.com/spanlyhq/spanly"
       - "--label=org.opencontainers.image.version={{ .Env.VERSION }}"
-      - "--label=org.opencontainers.image.licenses=MIT"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
   - image_templates:
       - "spanly/spanly:{{ .Env.VERSION }}-arm64"
       - "ghcr.io/spanlyhq/spanly:{{ .Env.VERSION }}-arm64"
@@ -72,7 +72,7 @@ dockers:
       - "--label=org.opencontainers.image.title=spanly"
       - "--label=org.opencontainers.image.source=https://github.com/spanlyhq/spanly"
       - "--label=org.opencontainers.image.version={{ .Env.VERSION }}"
-      - "--label=org.opencontainers.image.licenses=MIT"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
 
 docker_manifests:
   - name_template: "spanly/spanly:{{ .Env.VERSION }}"

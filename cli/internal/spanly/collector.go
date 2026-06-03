@@ -134,8 +134,8 @@ func (c *Collector) Start(ctx context.Context) {
 
 // Drain blocks until the queue is empty or the timeout elapses. Used at
 // graceful-shutdown to flush in-flight telemetry before exiting. Sinks
-// with internal batching (e.g. OTLP) should additionally be Shutdown'd
-// by the caller after Drain returns.
+// with internal batching should additionally be Shutdown'd by the
+// caller after Drain returns.
 func (c *Collector) Drain(timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

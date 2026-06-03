@@ -19,8 +19,8 @@ npx -y @spanly/spanly run -- python -m my_mcp
 Reach for **this SDK** when you need any of:
 
 - **Per-request hooks** (`on_collect`, `on_error`) — mutate or filter
-  packets, attach custom context (multi-tenant tagging, OpenTelemetry
-  trace ids), drop traffic by predicate.
+  packets, attach custom context (multi-tenant tagging, user IDs), drop
+  traffic by predicate.
 - **In-process embedding** — no extra binary, no extra container, no
   process supervision.
 - **Test integration** — direct control over the monitor lifecycle from
@@ -81,6 +81,17 @@ SpanlyClient().monitor(server, MonitorOptions(
     on_error=lambda e: log.error("spanly: %s", e),
 ))
 ```
+
+### Trace context propagation
+
+The SDK preserves the W3C `traceparent` value verbatim on every captured
+packet — the HTTP header on HTTP transports, the
+`params._meta.traceparent` field on stdio. The Spanly dashboard parses
+it at view time and renders a cross-link to the matching span in your
+existing APM (Datadog, Sentry, New Relic, …).
+
+This is automatic — no configuration, no extra dependency, no spans
+emitted into your APM.
 
 ## Links
 

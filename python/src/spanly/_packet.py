@@ -54,14 +54,21 @@ class HttpTransportContext:
     http_method: str = "get"
     path: str = "/"
     headers: dict[str, str] = field(default_factory=dict)
+    remote_address: str | None = None
+    remote_port: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "type": self.type,
             "httpMethod": self.http_method,
             "path": self.path,
             "headers": self.headers,
         }
+        if self.remote_address is not None:
+            d["remoteAddress"] = self.remote_address
+        if self.remote_port is not None:
+            d["remotePort"] = self.remote_port
+        return d
 
 
 TransportContext = StdioTransportContext | HttpTransportContext

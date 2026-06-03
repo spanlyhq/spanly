@@ -127,9 +127,13 @@ function bodyToObject(body: unknown) {
   throw new Error('Invalid body: not a string or object');
 }
 
-function parseBody(body: unknown) {
+function parseBodies(body: unknown): McpPacket[] | null {
   try {
-    return mcpPacketSchema.parse(bodyToObject(body));
+    const obj = bodyToObject(body);
+    if (Array.isArray(obj)) {
+      return obj.map((o) => mcpPacketSchema.parse(o));
+    }
+    return [mcpPacketSchema.parse(obj)];
   } catch (error) {
     console.warn('Error parsing MCP packet', body, error);
     return null;
@@ -149,6 +153,18 @@ function httpMethodFromRequest(req: IncomingMessage) {
   return 'get';
 }
 
+function remoteFromRequest(req: IncomingMessage): {
+  remoteAddress?: string;
+  remotePort?: number;
+} {
+  const address = req.socket?.remoteAddress;
+  const port = req.socket?.remotePort;
+  return {
+    ...(address ? { remoteAddress: address } : {}),
+    ...(typeof port === 'number' ? { remotePort: port } : {}),
+  };
+}
+
 export function requestToTransportContext(
   req: IncomingMessage
 ): SpanlyPacketTransportContextHttp {
@@ -162,6 +178,7 @@ export function requestToTransportContext(
         Array.isArray(value) ? value.join(', ') : value || '',
       ])
     ),
+    ...remoteFromRequest(req),
   };
 }
 
@@ -179,6 +196,7 @@ export function responseToTransportContext(
         Array.isArray(value) ? value.join(', ') : value?.toString() || '',
       ])
     ),
+    ...remoteFromRequest(req),
   };
 }
 
@@ -244,20 +262,29 @@ export class SpanlyClient {
       return null;
     }
 
-    const parsedBody = parseBody(body);
+    const parsedBodies = parseBodies(body);
 
-    if (parsedBody === null) {
+    if (parsedBodies === null || parsedBodies.length === 0) {
       return null;
     }
 
-    const spanlyPacket = {
-      timestamp: Date.now(),
-      direction,
-      context,
-      transportContext,
-      mcpPacket: parsedBody,
-    };
+    const timestamp = Date.now();
+    const results = await Promise.all(
+      parsedBodies.map((mcpPacket) =>
+        this._postPacket({
+          timestamp,
+          direction,
+          context,
+          transportContext,
+          mcpPacket,
+        })
+      )
+    );
 
+    return results[0];
+  }
+
+  private async _postPacket(spanlyPacket: SpanlyPacket) {
     const url = new URL(`/collect`, this.url);
     const requestBody = JSON.stringify(spanlyPacket);
 
@@ -308,19 +335,23 @@ export class SpanlyClient {
       const collect = (
         direction: SpanlyPacket['direction'],
         transportContext: SpanlyPacketTransportContext,
-        body: unknown
+        body: unknown,
+        contextOverride?: SpanlyPacketContext
       ) => {
         if (body === undefined) return;
+        const effectiveContext = contextOverride ?? context;
 
         if (options?.onCollect) {
-          const parsed = parseBody(body);
+          const parsed = parseBodies(body);
           if (parsed === null) return;
-          const result = options.onCollect(direction, context, parsed);
-          if (result === null) return;
-          body = result;
+          const filtered = parsed
+            .map((p) => options.onCollect?.(direction, effectiveContext, p) ?? null)
+            .filter((p): p is McpPacket => p !== null);
+          if (filtered.length === 0) return;
+          body = filtered.length === 1 ? filtered[0] : filtered;
         }
 
-        this._collect(direction, context, transportContext, body).then(
+        this._collect(direction, effectiveContext, transportContext, body).then(
           (result) => {
             if (result?.warnings?.length && options?.onWarning) {
               options.onWarning(result.warnings);
@@ -358,25 +389,52 @@ export class SpanlyClient {
           res: ServerResponse,
           parsedBody?: unknown
         ) => {
+          // Fresh monitorId per HTTP txn → batcher pairs c→s halves on it
+          // without colliding on rid across concurrent transactions.
+          const txnContext: SpanlyPacketContext = {
+            ...context,
+            spanlyMonitorId: crypto.randomUUID(),
+          };
+
           if (parsedBody !== undefined) {
-            collect('from-client', requestToTransportContext(req), parsedBody);
+            collect(
+              'from-client',
+              requestToTransportContext(req),
+              parsedBody,
+              txnContext
+            );
           }
 
           req.on('data', (chunk) => {
-            collect('from-client', requestToTransportContext(req), chunk);
+            collect(
+              'from-client',
+              requestToTransportContext(req),
+              chunk,
+              txnContext
+            );
           });
 
           const originalWrite = res.write;
 
           res.write = ((...args: Parameters<typeof originalWrite>) => {
-            collect('to-client', responseToTransportContext(res, req), args[0]);
+            collect(
+              'to-client',
+              responseToTransportContext(res, req),
+              args[0],
+              txnContext
+            );
             return originalWrite.apply(res, args);
           }) as typeof originalWrite;
 
           const originalEnd = res.end;
 
           res.end = ((...args: Parameters<typeof originalEnd>) => {
-            collect('to-client', responseToTransportContext(res, req), args[0]);
+            collect(
+              'to-client',
+              responseToTransportContext(res, req),
+              args[0],
+              txnContext
+            );
             return originalEnd.apply(res, args);
           }) as typeof originalEnd;
 

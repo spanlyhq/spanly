@@ -88,8 +88,6 @@ spanly run [flags] -- <command> [args...]
 | `--retry-max-backoff` | `30s` | Cap on retry backoff. |
 | `--shutdown-grace` | `10s` | Time to flush in-flight telemetry on shutdown. |
 | `--admin-addr` | _disabled_ | `/healthz`, `/readyz`, `/metrics` listener (e.g. `:9090`). |
-| `--otlp-endpoint` | _disabled_ | OTLP/HTTP endpoint for co-export (overrides `OTEL_EXPORTER_OTLP_ENDPOINT`). |
-| `--otlp-header` | _none_ | `KEY=VALUE` header on OTLP requests. Repeatable. |
 
 Examples:
 
@@ -134,35 +132,13 @@ When `--admin-addr` is set:
 - `GET /readyz` — 200 if the upstream is reachable (1s cache).
 - `GET /metrics` — Prometheus text format. Counters: packets collected/sent/dropped/failed, retry attempts, buffer depth, request counts by inspection class.
 
-## OTLP co-export
+## OpenTelemetry
 
-Spanly can ship the same telemetry to any OTLP/HTTP backend (Datadog,
-Honeycomb, Grafana Tempo, Jaeger, an OTel Collector) in parallel with
-shipping to Spanly. Spans follow the official MCP semantic conventions
-([spec](https://opentelemetry.io/docs/specs/semconv/gen-ai/mcp/)): each
-JSON-RPC request/response pair becomes one span named
-`{method} {target}` (e.g. `tools/call get-weather`), with attributes
-including `mcp.method.name`, `mcp.session.id`, `gen_ai.tool.name`,
-`jsonrpc.request.id`, and `server.address`.
-
-Trace context propagation:
-
-- **HTTP mode** — W3C `traceparent` headers on incoming requests are
-  extracted automatically, so MCP spans become children of upstream
-  traces.
-- **stdio mode** — `traceparent` is read from JSON-RPC `params._meta`
-  per the MCP semconv. If absent, a new root trace is started.
-
-Quick start:
-
-```bash
-# point at any OTLP/HTTP collector — env var or flag, your choice
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-spanly proxy localhost:3000 :3001
-```
-
-Only `http/protobuf` is supported in v1 — for gRPC backends, run an OTel
-Collector hop and point Spanly at its HTTP receiver.
+The CLI does not export OTel spans — it ships telemetry to Spanly only.
+The inbound `traceparent` header (when present) is preserved verbatim
+on each captured packet, and the Spanly dashboard parses it at view
+time to render a cross-link to the matching span in your APM (Datadog,
+Sentry, Honeycomb, …). No configuration required.
 
 ## What gets captured
 
@@ -219,10 +195,6 @@ reverse_proxy spanly:3001 {
 |---|---|---|
 | `SPANLY_API_KEY` | yes | Region detected from prefix (`spanly_us_*` / `spanly_eu_*`). |
 | `SPANLY_INGEST_URL` | no | Override ingest base URL (self-hosted / local dev). |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | no | Enable OTLP co-export to this endpoint (e.g. `http://otel-collector:4318`). Equivalent to `--otlp-endpoint`. |
-| `OTEL_EXPORTER_OTLP_HEADERS` | no | Comma-separated `k=v` headers added to OTLP requests. |
-| `OTEL_SERVICE_NAME` | no | Override `service.name` on emitted spans. Default `spanly-cli`. |
-| `OTEL_RESOURCE_ATTRIBUTES` | no | Standard OTel resource attribute overrides (`k=v,k=v`). |
 
 ## Development
 

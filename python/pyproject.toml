@@ -2,12 +2,17 @@
 name = "spanly"
 version = "0.1.0"
 description = "Spanly SDK for monitoring MCP servers"
+license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = ["httpx>=0.27"]
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.0"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "respx>=0.22"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "respx>=0.22",
+]
 
 [build-system]
 requires = ["hatchling"]

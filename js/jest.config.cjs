@@ -16,6 +16,9 @@ module.exports = {
     '^.+\\.[tj]s$': ['@swc/jest', swcJestConfig],
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1',
+  },
   testMatch: ['<rootDir>/src/**/?(*.)+(spec|test).[jt]s?(x)'],
   coverageDirectory: 'test-output/jest/coverage',
 };

@@ -100,10 +100,22 @@ def extract_transport_context(session_message: Any) -> TransportContext:
             raw_headers = getattr(request, "headers", None)
             if raw_headers is not None:
                 headers = {k: v for k, v in raw_headers.items()}
+            remote_address: str | None = None
+            remote_port: int | None = None
+            client = getattr(request, "client", None)
+            if client is not None:
+                host_attr = getattr(client, "host", None)
+                if isinstance(host_attr, str) and host_attr:
+                    remote_address = host_attr
+                port_attr = getattr(client, "port", None)
+                if isinstance(port_attr, int):
+                    remote_port = port_attr
             return HttpTransportContext(
                 http_method=method,
                 path=path,
                 headers=headers,
+                remote_address=remote_address,
+                remote_port=remote_port,
             )
         except Exception:
             logger.debug("Failed to extract HTTP transport context", exc_info=True)

@@ -69,6 +69,17 @@ spanly.monitor(mcpServer, {
 });
 ```
 
+### Trace context propagation
+
+The SDK preserves the W3C `traceparent` value verbatim on every captured
+packet — the HTTP header on HTTP transports, the
+`params._meta.traceparent` field on stdio. The Spanly dashboard parses
+it at view time and renders a cross-link to the matching span in your
+existing APM (Datadog, Sentry, New Relic, …).
+
+This is automatic — no configuration, no extra dependency, no spans
+emitted into your APM.
+
 ## Links
 
 - [spanly.com](https://spanly.com)

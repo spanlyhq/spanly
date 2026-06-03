@@ -26,7 +26,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/spanlyhq/spanly/cli/internal/otlp"
 	"github.com/spanlyhq/spanly/cli/internal/spanly"
 )
 
@@ -60,26 +59,11 @@ func Main(args []string, version string) error {
 		return err
 	}
 
-	sinks := []spanly.Sink{spanlySink}
-	otlpSink, err := otlp.NewSink(context.Background(), otlp.Options{
-		Endpoint: cfg.otlpEndpoint,
-		Headers:  cfg.otlpHeaders,
-	})
-	switch {
-	case err == nil:
-		sinks = append(sinks, otlpSink)
-		log.Printf("otlp exporter enabled (endpoint %s)", otlpSink.Endpoint())
-	case errors.Is(err, otlp.ErrDisabled):
-		// OTLP is opt-in; nothing configured, nothing to do.
-	default:
-		return fmt.Errorf("otlp: %w", err)
-	}
-
 	collector, err := spanly.NewCollector(spanly.CollectorOptions{
 		ClientID:   uuid.NewString(),
 		MonitorID:  uuid.NewString(),
 		BufferSize: cfg.bufferSize,
-	}, sinks...)
+	}, spanlySink)
 	if err != nil {
 		return err
 	}
@@ -153,8 +137,6 @@ type config struct {
 	maxBackoff     time.Duration
 	shutdownGrace  time.Duration
 	adminAddr      string
-	otlpEndpoint   string
-	otlpHeaders    map[string]string
 }
 
 func parseArgs(args []string) (*config, error) {
@@ -175,16 +157,10 @@ func parseArgs(args []string) (*config, error) {
 		"Time to flush in-flight telemetry on graceful shutdown.")
 	adminAddr := fs.String("admin-addr", "",
 		"Listen address for /healthz, /readyz, /metrics (e.g. ':9090'). Empty = disabled.")
-	otlpEndpoint := fs.String("otlp-endpoint", "",
-		"OTLP/HTTP endpoint to co-export spans to (e.g. 'http://otel-collector:4318'). Overrides OTEL_EXPORTER_OTLP_ENDPOINT. Empty = OTLP disabled.")
 
 	var contextHeaders stringSliceFlag
 	fs.Var(&contextHeaders, "context-header",
 		`Map an HTTP header to a PacketContext field, e.g. 'X-Tenant=environmentId'. Repeatable. Allowed fields: environmentId, projectId, organisationId.`)
-
-	var otlpHeaderFlags stringSliceFlag
-	fs.Var(&otlpHeaderFlags, "otlp-header",
-		`Add a header to OTLP exporter requests, e.g. 'x-api-key=abc'. Repeatable. Additive on top of OTEL_EXPORTER_OTLP_HEADERS.`)
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -211,11 +187,6 @@ func parseArgs(args []string) (*config, error) {
 		return nil, err
 	}
 
-	otlpHeaders, err := parseOTLPHeaders(otlpHeaderFlags)
-	if err != nil {
-		return nil, err
-	}
-
 	return &config{
 		upstream:       upstream,
 		bindAddr:       bindAddr,
@@ -227,25 +198,7 @@ func parseArgs(args []string) (*config, error) {
 		maxBackoff:     *maxBackoff,
 		shutdownGrace:  *shutdownGrace,
 		adminAddr:      *adminAddr,
-		otlpEndpoint:   *otlpEndpoint,
-		otlpHeaders:    otlpHeaders,
 	}, nil
-}
-
-// parseOTLPHeaders splits "k=v" entries into a map. Empty input → nil.
-func parseOTLPHeaders(raw []string) (map[string]string, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make(map[string]string, len(raw))
-	for _, entry := range raw {
-		eq := strings.IndexByte(entry, '=')
-		if eq <= 0 || eq == len(entry)-1 {
-			return nil, fmt.Errorf("--otlp-header %q must be of form KEY=VALUE", entry)
-		}
-		out[strings.TrimSpace(entry[:eq])] = strings.TrimSpace(entry[eq+1:])
-	}
-	return out, nil
 }
 
 // parseInspectPrefix splits a comma-separated prefix list, trimming
@@ -306,17 +259,10 @@ Flags:
   --retry-max-backoff duration    Cap on retry backoff. Default: 30s.
   --shutdown-grace duration       Time to flush telemetry on shutdown. Default: 10s.
   --admin-addr string             Admin listener (e.g. ':9090'). Default: disabled.
-  --otlp-endpoint string          OTLP/HTTP endpoint to co-export spans to.
-                                  Overrides OTEL_EXPORTER_OTLP_ENDPOINT. Empty = disabled.
-  --otlp-header KEY=VALUE         Add a header to OTLP requests. Repeatable.
-                                  Additive on top of OTEL_EXPORTER_OTLP_HEADERS.
 
 Environment:
   SPANLY_API_KEY                 Required. Region detected from prefix.
   SPANLY_INGEST_URL              Optional override of the ingest URL.
-  OTEL_EXPORTER_OTLP_ENDPOINT    Enable OTLP co-export to this endpoint.
-  OTEL_EXPORTER_OTLP_HEADERS     Comma-separated 'k=v' OTLP request headers.
-  OTEL_SERVICE_NAME              Override service.name on emitted spans (default 'spanly-cli').
 
 Per-request headers (recognised on inbound traffic):
   X-Spanly-Monitor-Id   Override the spanlyMonitorId for this request.

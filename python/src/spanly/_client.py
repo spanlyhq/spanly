@@ -119,7 +119,10 @@ class SpanlyClient:
                 mcp_server_info=_get_server_info(low_level_server),
             )
 
-            sender = AsyncSender(url=client.url, api_key=client.api_key)
+            sender = AsyncSender(
+                url=client.url,
+                api_key=client.api_key,
+            )
 
             wrapped_read = InterceptedReceiveStream(
                 read_stream,
