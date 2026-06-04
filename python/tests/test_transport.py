@@ -46,21 +46,10 @@ class FakeSendStream:
         pass
 
 
-# --- InterceptedReceiveStream tests ---
-
-
-@pytest.mark.asyncio
-async def test_receive_stream_intercepts_messages():
-    captured: list[Any] = []
-    inner = FakeReceiveStream(["msg1", "msg2"])
-    stream = InterceptedReceiveStream(inner, on_message=lambda msg: captured.append(msg))
-
-    result1 = await stream.receive()
-    result2 = await stream.receive()
-
-    assert result1 == "msg1"
-    assert result2 == "msg2"
-    assert captured == ["msg1", "msg2"]
+# --- InterceptedReceiveStream / InterceptedSendStream tests ---
+#
+# Happy-path interception is exercised end-to-end by the Python E2E MCP server
+# (apps/e2e-mcp-python + apps/e2e). Only callback-error invariants live here.
 
 
 @pytest.mark.asyncio
@@ -74,36 +63,6 @@ async def test_receive_stream_callback_error_does_not_propagate():
     # Should still return the message despite callback failure
     result = await stream.receive()
     assert result == "msg1"
-
-
-@pytest.mark.asyncio
-async def test_receive_stream_aiter():
-    captured: list[Any] = []
-    inner = FakeReceiveStream(["a", "b"])
-    stream = InterceptedReceiveStream(inner, on_message=lambda msg: captured.append(msg))
-
-    results = []
-    async for item in stream:
-        results.append(item)
-
-    assert results == ["a", "b"]
-    assert captured == ["a", "b"]
-
-
-# --- InterceptedSendStream tests ---
-
-
-@pytest.mark.asyncio
-async def test_send_stream_intercepts_messages():
-    captured: list[Any] = []
-    inner = FakeSendStream()
-    stream = InterceptedSendStream(inner, on_message=lambda msg: captured.append(msg))
-
-    await stream.send("msg1")
-    await stream.send("msg2")
-
-    assert inner.sent == ["msg1", "msg2"]
-    assert captured == ["msg1", "msg2"]
 
 
 @pytest.mark.asyncio

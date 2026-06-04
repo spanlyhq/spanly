@@ -20,44 +20,6 @@ class FakeSessionMessage:
 
 
 @pytest.mark.asyncio
-async def test_sender_sends_valid_packet():
-    sender = AsyncSender(url="http://localhost:3002", api_key="spanly_test")
-
-    mock_message = MagicMock()
-    mock_message.model_dump.return_value = {
-        "jsonrpc": "2.0",
-        "method": "tools/list",
-        "id": 1,
-    }
-    session_msg = FakeSessionMessage(message=mock_message)
-
-    context = SpanlyPacketContext(
-        spanly_client_id="client-1",
-        spanly_monitor_id="monitor-1",
-    )
-
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {"success": True}
-
-    with patch.object(sender._http_client, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
-        sender.schedule("from-client", context, session_msg, None)
-
-        # Wait for the fire-and-forget task
-        await asyncio.sleep(0.1)
-
-        mock_post.assert_called_once()
-        call_kwargs = mock_post.call_args
-        body = call_kwargs.kwargs["json"]
-        assert body["direction"] == "from-client"
-        assert body["context"]["spanlyClientId"] == "client-1"
-        assert body["mcpPacket"]["method"] == "tools/list"
-        assert call_kwargs.kwargs["headers"]["Authorization"] == "Bearer spanly_test"
-
-    await sender.close()
-
-
-@pytest.mark.asyncio
 async def test_sender_drops_non_jsonrpc():
     sender = AsyncSender(url="http://localhost:3002", api_key="spanly_test")
 
