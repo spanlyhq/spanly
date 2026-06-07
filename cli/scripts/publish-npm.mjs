@@ -25,6 +25,9 @@ const DIST_DIR = path.join(CLI_DIR, 'dist');
 const OUT_DIR = path.join(CLI_DIR, 'dist-npm');
 const WRAPPER_NAME = '@spanly/spanly';
 const BIN_NAME = 'spanly';
+// Internal monorepo URL on purpose: the Copybara mirror rewrites
+// github.com/spanlyhq/spanly -> github.com/spanlyhq/spanly across cli/** before
+// the public repo builds and publishes, so the published package.json is clean.
 const REPOSITORY = 'https://github.com/spanlyhq/spanly';
 const HOMEPAGE = 'https://spanly.com';
 
@@ -79,6 +82,11 @@ function buildPlatformPackage(artifact) {
   copyFileSync(artifact.path, path.join(binDir, binFile));
   if (nodeOs !== 'win32') chmodSync(path.join(binDir, binFile), 0o755);
 
+  // No `bin` field here on purpose: the wrapper package is the only one that
+  // declares the `spanly` bin. If a platform package also declared it, npm would
+  // see two packages claiming the same bin name and link neither — breaking
+  // `npx @spanly/spanly` / PATH. The platform package only ships the raw binary;
+  // the wrapper's launcher resolves it via require.resolve.
   writeFileSync(
     path.join(pkgDir, 'package.json'),
     JSON.stringify(
@@ -91,7 +99,6 @@ function buildPlatformPackage(artifact) {
         license: 'Apache-2.0',
         os: [nodeOs],
         cpu: [nodeArch],
-        bin: { [BIN_NAME]: `bin/${binFile}` },
       },
       null,
       2,

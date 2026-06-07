@@ -95,7 +95,7 @@ docker_manifests:
 brews:
   - name: spanly
     repository:
-      owner: spanly
+      owner: spanlyhq
       name: homebrew-tap
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
