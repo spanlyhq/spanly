@@ -1,10 +1,14 @@
 [project]
 name = "spanly"
-version = "0.1.0"
+version = "0.1.1"
 description = "Spanly SDK for monitoring MCP servers"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = ["httpx>=0.27"]
+
+[project.urls]
+Homepage = "https://spanly.com"
+Repository = "https://github.com/spanlyhq/spanly"
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.0"]

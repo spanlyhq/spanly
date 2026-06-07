@@ -2,6 +2,11 @@
   "name": "@spanly/sdk",
   "version": "0.1.1",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spanlyhq/spanly.git",
+    "directory": "js"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
