@@ -36,6 +36,16 @@ from `PORT`. **Your MCP client URL doesn't change.**
 
 ## Install
 
+### Quick install (macOS, Linux)
+
+```bash
+curl -fsSL https://spanly.com/install.sh | sh
+```
+
+Detects your OS and architecture, verifies the checksum, and installs the
+binary onto your `PATH`. Override with `SPANLY_VERSION` or
+`SPANLY_INSTALL_DIR`.
+
 ### npm (recommended for MCP client configs)
 
 ```bash
@@ -48,7 +58,7 @@ Desktop, Cursor, or Windsurf server configs.
 ### Homebrew
 
 ```bash
-brew install spanly/tap/spanly
+brew install spanlyhq/tap/spanly
 ```
 
 ### Direct download
