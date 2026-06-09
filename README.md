@@ -32,7 +32,7 @@ pip install spanly
 npx -y @spanly/spanly run -- <your-mcp-command>
 
 # or via Homebrew
-brew install spanly/tap/spanly
+brew install spanlyhq/tap/spanly
 ```
 
 See each subdirectory's README for usage details.
