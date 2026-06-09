@@ -147,6 +147,7 @@ func (s *SpanlySink) Export(ctx context.Context, packet SpanlyPacket) error {
 		}
 	}
 	s.failed.Add(1)
+	log.Printf("spanly: collect failed after %d attempts: %v", s.maxAttempts, lastErr)
 	return lastErr
 }
 
