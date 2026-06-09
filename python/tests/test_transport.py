@@ -125,6 +125,87 @@ def test_extract_transport_context_with_starlette_request():
     assert result.headers == {"content-type": "application/json"}
 
 
+def _http_message(headers: dict[str, str]) -> Any:
+    @dataclass
+    class FakeUrl:
+        path: str = "/mcp"
+
+    @dataclass
+    class FakeRequest:
+        method: str = "POST"
+        url: Any = None
+        headers: Any = None
+
+        def __post_init__(self) -> None:
+            self.url = FakeUrl()
+
+    @dataclass
+    class FakeMetadata:
+        request_context: Any = None
+
+    @dataclass
+    class FakeMessage:
+        message: Any = None
+        metadata: Any = None
+
+    request = FakeRequest()
+    request.headers = headers
+    return FakeMessage(metadata=FakeMetadata(request_context=request))
+
+
+def test_extract_transport_context_redacts_sensitive_headers():
+    msg = _http_message(
+        {
+            "authorization": "Bearer super-secret",
+            "cookie": "session=abc123",
+            "set-cookie": "session=abc123",
+            "proxy-authorization": "Basic dXNlcjpwYXNz",
+            "x-api-key": "key-123",
+            "content-type": "application/json",
+            "mcp-session-id": "session-1",
+        }
+    )
+
+    result = extract_transport_context(msg)
+
+    assert isinstance(result, HttpTransportContext)
+    assert result.headers == {
+        "authorization": "[REDACTED]",
+        "cookie": "[REDACTED]",
+        "set-cookie": "[REDACTED]",
+        "proxy-authorization": "[REDACTED]",
+        "x-api-key": "[REDACTED]",
+        "content-type": "application/json",
+        "mcp-session-id": "session-1",
+    }
+
+
+def test_extract_transport_context_redacts_case_insensitively():
+    msg = _http_message({"Authorization": "Bearer secret"})
+
+    result = extract_transport_context(msg)
+
+    assert isinstance(result, HttpTransportContext)
+    assert result.headers == {"Authorization": "[REDACTED]"}
+
+
+def test_extract_transport_context_redacts_extra_headers():
+    msg = _http_message(
+        {
+            "x-custom-token": "secret-token",
+            "accept": "application/json",
+        }
+    )
+
+    result = extract_transport_context(msg, redact_headers=["X-Custom-Token"])
+
+    assert isinstance(result, HttpTransportContext)
+    assert result.headers == {
+        "x-custom-token": "[REDACTED]",
+        "accept": "application/json",
+    }
+
+
 # --- session_message_to_dict tests ---
 
 

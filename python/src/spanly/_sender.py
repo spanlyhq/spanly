@@ -48,7 +48,10 @@ class AsyncSender:
                 return
             mcp_packet = result
 
-        transport_context = extract_transport_context(session_message)
+        transport_context = extract_transport_context(
+            session_message,
+            redact_headers=options.redact_headers if options else None,
+        )
 
         packet = SpanlyPacket(
             timestamp=int(time.time() * 1000),

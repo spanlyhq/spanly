@@ -92,6 +92,7 @@ spanly run [flags] -- <command> [args...]
 | `--child-startup-timeout` | `30s` | Max wait for child to listen. |
 | `--inspect-prefix` | `/mcp,/sse` | Comma-separated path prefixes to inspect (HTTP mode). Empty = inspect all. |
 | `--context-header` | _none_ | `HEADER=field` mapping. Repeatable. Fields: `environmentId`, `projectId`, `organisationId`. |
+| `--redact-header` | _none_ | Additional header to redact from captured telemetry (HTTP mode). Repeatable. `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization` and `X-Api-Key` are always redacted. |
 | `--buffer-size` | `10000` | Max packets buffered when ingest is unreachable. |
 | `--retry-max-attempts` | `3` | Max POST attempts per packet. |
 | `--retry-backoff` | `1s` | Initial retry backoff (exponential). |
@@ -156,6 +157,10 @@ For every JSON-RPC packet on inspected paths:
 
 - The raw JSON-RPC 2.0 body.
 - HTTP method, path, and headers (including `mcp-session-id`) — HTTP mode only.
+  Credential-bearing headers (`Authorization`, `Cookie`, `Set-Cookie`,
+  `Proxy-Authorization`, `X-Api-Key`) are replaced with `[REDACTED]` before
+  the packet leaves your machine; add more with `--redact-header`. The
+  proxied request and response keep their original headers.
 - A timestamp and the per-process `spanlyClientId`/`spanlyMonitorId`.
 
 SSE (`text/event-stream`) responses are streamed to the client verbatim; each

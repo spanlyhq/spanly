@@ -44,6 +44,9 @@ class MonitorOptions:
     on_error: Callable[[Exception], None] | None = None
     on_warning: Callable[[list[CollectWarning]], None] | None = None
     on_collect: Callable[[str, SpanlyPacketContext, dict[str, Any]], dict[str, Any] | None] | None = None
+    # Additional header names to redact from captured transport context,
+    # on top of DEFAULT_REDACTED_HEADERS. Case-insensitive.
+    redact_headers: list[str] | None = None
 
 
 def _resolve_low_level_server(server: Any) -> Any:

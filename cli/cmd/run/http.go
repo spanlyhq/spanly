@@ -56,6 +56,7 @@ func runHTTP(ctx context.Context, cfg *config, collector *spanly.Collector, vers
 		Collector:      collector,
 		InspectPrefix:  cfg.inspectPrefix,
 		ContextHeaders: cfg.contextHeaders,
+		RedactHeaders:  cfg.redactHeaders,
 	})
 	if err != nil {
 		_ = cmd.Process.Signal(syscall.SIGTERM)

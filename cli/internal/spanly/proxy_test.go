@@ -275,6 +275,72 @@ func TestProxyContextHeaderMapping(t *testing.T) {
 	}
 }
 
+func TestProxyRedactsSensitiveHeaders(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
+			t.Errorf("upstream Authorization = %q, want original value forwarded", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Set-Cookie", "session=abc123")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+	}))
+	defer upstream.Close()
+
+	ingest := newFakeIngest(t, 2)
+	defer ingest.srv.Close()
+
+	proxy, _ := newProxyFor(t, upstream.URL, ingest.srv.URL, func(o *ProxyOptions) {
+		o.RedactHeaders = []string{"X-Custom-Token"}
+	})
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, proxyServer.URL+"/mcp",
+		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Cookie", "session=abc123")
+	req.Header.Set("X-Api-Key", "key-123")
+	req.Header.Set("X-Custom-Token", "custom-secret")
+	req.Header.Set("Mcp-Session-Id", "session-1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got := resp.Header.Get("Set-Cookie"); got != "session=abc123" {
+		t.Errorf("client Set-Cookie = %q, want original value forwarded", got)
+	}
+
+	packets := ingest.waitFor(t, 2*time.Second)
+	var from, to *SpanlyPacket
+	for i := range packets {
+		switch packets[i].Direction {
+		case "from-client":
+			from = &packets[i]
+		case "to-client":
+			to = &packets[i]
+		}
+	}
+	if from == nil || to == nil {
+		t.Fatalf("expected both directions, got %+v", packets)
+	}
+	for _, name := range []string{"authorization", "cookie", "x-api-key", "x-custom-token"} {
+		if got := from.TransportContext.Headers[name]; got != "[REDACTED]" {
+			t.Errorf("from-client %s = %q, want [REDACTED]", name, got)
+		}
+	}
+	if got := from.TransportContext.Headers["mcp-session-id"]; got != "session-1" {
+		t.Errorf("from-client mcp-session-id = %q, want preserved", got)
+	}
+	if got := to.TransportContext.Headers["set-cookie"]; got != "[REDACTED]" {
+		t.Errorf("to-client set-cookie = %q, want [REDACTED]", got)
+	}
+	if got := to.TransportContext.Headers["content-type"]; got != "application/json" {
+		t.Errorf("to-client content-type = %q, want preserved", got)
+	}
+}
+
 func TestProxyInspectPrefixSkipsNonMatching(t *testing.T) {
 	var upstreamHits int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -422,12 +488,31 @@ func TestFlattenHeaders(t *testing.T) {
 	h.Add("X-Foo", "a")
 	h.Add("X-Foo", "b")
 	h.Set("Content-Type", "application/json")
-	got := flattenHeaders(h)
+	got := flattenHeaders(h, nil)
 	if got["x-foo"] != "a, b" {
 		t.Errorf("multi value = %q", got["x-foo"])
 	}
 	if got["content-type"] != "application/json" {
 		t.Errorf("single value = %q", got["content-type"])
+	}
+}
+
+func TestFlattenHeadersRedacts(t *testing.T) {
+	h := http.Header{}
+	h.Set("Authorization", "Bearer secret")
+	h.Add("Set-Cookie", "a=1")
+	h.Add("Set-Cookie", "b=2")
+	h.Set("Content-Type", "application/json")
+	redact := map[string]struct{}{"authorization": {}, "set-cookie": {}}
+	got := flattenHeaders(h, redact)
+	if got["authorization"] != "[REDACTED]" {
+		t.Errorf("authorization = %q", got["authorization"])
+	}
+	if got["set-cookie"] != "[REDACTED]" {
+		t.Errorf("set-cookie = %q", got["set-cookie"])
+	}
+	if got["content-type"] != "application/json" {
+		t.Errorf("content-type = %q", got["content-type"])
 	}
 }
 

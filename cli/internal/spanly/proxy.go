@@ -41,12 +41,25 @@ func ValidateContextField(field string) error {
 	}
 }
 
+// defaultRedactedHeaders are credential-bearing headers whose values are
+// replaced with [REDACTED] in captured transport context. Matched
+// case-insensitively. The headers themselves are still forwarded verbatim
+// to the upstream/client; only the telemetry copy is redacted.
+var defaultRedactedHeaders = []string{
+	"authorization",
+	"cookie",
+	"set-cookie",
+	"proxy-authorization",
+	"x-api-key",
+}
+
 // ProxyOptions configures the Proxy.
 type ProxyOptions struct {
 	Upstream       *url.URL
 	Collector      *Collector
 	InspectPrefix  []string        // empty/nil = inspect all paths
 	ContextHeaders []HeaderMapping // optional per-request overrides
+	RedactHeaders  []string        // extra headers to redact beyond the defaults
 }
 
 type Proxy struct {
@@ -54,6 +67,7 @@ type Proxy struct {
 	collector      *Collector
 	inspectPrefix  []string
 	contextHeaders []HeaderMapping
+	redactHeaders  map[string]struct{}
 
 	client      *http.Client
 	passthrough *httputil.ReverseProxy
@@ -90,11 +104,20 @@ func NewProxy(opts ProxyOptions) (*Proxy, error) {
 		DisableCompression:  true,
 	}
 
+	redact := make(map[string]struct{}, len(defaultRedactedHeaders)+len(opts.RedactHeaders))
+	for _, h := range defaultRedactedHeaders {
+		redact[h] = struct{}{}
+	}
+	for _, h := range opts.RedactHeaders {
+		redact[strings.ToLower(h)] = struct{}{}
+	}
+
 	p := &Proxy{
 		upstream:       opts.Upstream,
 		collector:      opts.Collector,
 		inspectPrefix:  opts.InspectPrefix,
 		contextHeaders: opts.ContextHeaders,
+		redactHeaders:  redact,
 		client: &http.Client{
 			Timeout:   0,
 			Transport: transport,
@@ -177,7 +200,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	override := p.buildOverride(r)
 
-	transport := requestTransportContext(r)
+	transport := p.requestTransportContext(r)
 	if packet, ok := ParseMCPPacket(requestBody); ok {
 		p.collector.Collect("from-client", override, transport, packet)
 	}
@@ -208,7 +231,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	copyHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 
-	respTransport := responseTransportContext(r, resp)
+	respTransport := p.responseTransportContext(r, resp)
 
 	if isSSE(resp.Header.Get("Content-Type")) {
 		p.streamSSE(w, resp.Body, override, respTransport)
@@ -277,21 +300,21 @@ func (p *Proxy) drainFrames(buf *bytes.Buffer, override PacketContext, transport
 	}
 }
 
-func requestTransportContext(r *http.Request) TransportContext {
+func (p *Proxy) requestTransportContext(r *http.Request) TransportContext {
 	return TransportContext{
 		Type:       "http",
 		HTTPMethod: normalizeHTTPMethod(r.Method),
 		Path:       r.URL.RequestURI(),
-		Headers:    flattenHeaders(r.Header),
+		Headers:    flattenHeaders(r.Header, p.redactHeaders),
 	}
 }
 
-func responseTransportContext(r *http.Request, resp *http.Response) TransportContext {
+func (p *Proxy) responseTransportContext(r *http.Request, resp *http.Response) TransportContext {
 	return TransportContext{
 		Type:       "http",
 		HTTPMethod: normalizeHTTPMethod(r.Method),
 		Path:       r.URL.RequestURI(),
-		Headers:    flattenHeaders(resp.Header),
+		Headers:    flattenHeaders(resp.Header, p.redactHeaders),
 	}
 }
 
@@ -306,10 +329,15 @@ func normalizeHTTPMethod(m string) string {
 	}
 }
 
-func flattenHeaders(h http.Header) map[string]string {
+func flattenHeaders(h http.Header, redact map[string]struct{}) map[string]string {
 	out := make(map[string]string, len(h))
 	for k, v := range h {
-		out[strings.ToLower(k)] = strings.Join(v, ", ")
+		key := strings.ToLower(k)
+		if _, ok := redact[key]; ok {
+			out[key] = "[REDACTED]"
+			continue
+		}
+		out[key] = strings.Join(v, ", ")
 	}
 	return out
 }

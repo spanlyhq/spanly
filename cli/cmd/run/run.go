@@ -44,6 +44,7 @@ type config struct {
 
 	inspectPrefix  []string
 	contextHeaders []spanly.HeaderMapping
+	redactHeaders  []string
 	bufferSize     int
 	maxAttempts    int
 	initialBackoff time.Duration
@@ -173,6 +174,10 @@ func parseArgs(args []string) (*config, error) {
 	fs.Var(&contextHeaders, "context-header",
 		`Map an HTTP header to a PacketContext field, e.g. 'X-Tenant=environmentId'. HTTP mode only. Repeatable.`)
 
+	var redactHeaders stringSliceFlag
+	fs.Var(&redactHeaders, "redact-header",
+		`Additional HTTP header to redact from captured telemetry, e.g. 'X-Custom-Token'. HTTP mode only. Repeatable. Authorization, Cookie, Set-Cookie, Proxy-Authorization and X-Api-Key are always redacted.`)
+
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
@@ -195,6 +200,7 @@ func parseArgs(args []string) (*config, error) {
 		childStartupTimeout: *childStartupTimeout,
 		inspectPrefix:       prefixes,
 		contextHeaders:      mappings,
+		redactHeaders:       redactHeaders,
 		bufferSize:          *bufferSize,
 		maxAttempts:         *maxAttempts,
 		initialBackoff:      *initialBackoff,
@@ -259,6 +265,11 @@ Flags:
                                (HTTP mode only.) Default: "/mcp,/sse".
   --context-header HEADER=fld  Map header to context field. Repeatable.
                                (HTTP mode only.)
+  --redact-header HEADER       Additional header to redact from captured
+                               telemetry. Repeatable. (HTTP mode only.)
+                               Authorization, Cookie, Set-Cookie,
+                               Proxy-Authorization and X-Api-Key are always
+                               redacted.
 
   --buffer-size int            Default: 10000.
   --retry-max-attempts int     Default: 3.

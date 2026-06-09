@@ -12,6 +12,30 @@ logger = logging.getLogger("spanly")
 
 T = TypeVar("T")
 
+# Credential-bearing headers whose values are replaced with [REDACTED]
+# before the packet leaves the process. Matched case-insensitively.
+DEFAULT_REDACTED_HEADERS = frozenset(
+    {
+        "authorization",
+        "cookie",
+        "set-cookie",
+        "proxy-authorization",
+        "x-api-key",
+    }
+)
+
+
+def _redact_headers(
+    headers: dict[str, str],
+    extra_redacted: list[str] | None = None,
+) -> dict[str, str]:
+    redacted = DEFAULT_REDACTED_HEADERS
+    if extra_redacted:
+        redacted = redacted | {name.lower() for name in extra_redacted}
+    return {
+        k: "[REDACTED]" if k.lower() in redacted else v for k, v in headers.items()
+    }
+
 
 class InterceptedReceiveStream(Generic[T]):
     """Wraps a receive stream to intercept incoming (from-client) messages."""
@@ -79,8 +103,15 @@ class InterceptedSendStream(Generic[T]):
         await self.aclose()
 
 
-def extract_transport_context(session_message: Any) -> TransportContext:
-    """Determine transport context from a SessionMessage's metadata."""
+def extract_transport_context(
+    session_message: Any,
+    redact_headers: list[str] | None = None,
+) -> TransportContext:
+    """Determine transport context from a SessionMessage's metadata.
+
+    Sensitive headers (DEFAULT_REDACTED_HEADERS plus any names in
+    ``redact_headers``) are replaced with ``[REDACTED]``.
+    """
     metadata = getattr(session_message, "metadata", None)
     if metadata is None:
         return StdioTransportContext()
@@ -99,7 +130,7 @@ def extract_transport_context(session_message: Any) -> TransportContext:
             headers: dict[str, str] = {}
             raw_headers = getattr(request, "headers", None)
             if raw_headers is not None:
-                headers = {k: v for k, v in raw_headers.items()}
+                headers = _redact_headers(dict(raw_headers.items()), redact_headers)
             remote_address: str | None = None
             remote_port: int | None = None
             client = getattr(request, "client", None)

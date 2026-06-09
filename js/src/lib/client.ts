@@ -165,8 +165,39 @@ function remoteFromRequest(req: IncomingMessage): {
   };
 }
 
+// Credential-bearing headers whose values are replaced with [REDACTED]
+// before the packet leaves the process. Matched case-insensitively.
+export const DEFAULT_REDACTED_HEADERS = [
+  'authorization',
+  'cookie',
+  'set-cookie',
+  'proxy-authorization',
+  'x-api-key',
+] as const;
+
+const defaultRedactedHeaderSet: ReadonlySet<string> = new Set(
+  DEFAULT_REDACTED_HEADERS
+);
+
+function buildRedactedHeaderSet(extra?: string[]): ReadonlySet<string> {
+  if (!extra?.length) return defaultRedactedHeaderSet;
+  return new Set([
+    ...defaultRedactedHeaderSet,
+    ...extra.map((name) => name.toLowerCase()),
+  ]);
+}
+
+function redactHeader(
+  key: string,
+  value: string,
+  redactedHeaders: ReadonlySet<string>
+): string {
+  return redactedHeaders.has(key.toLowerCase()) ? '[REDACTED]' : value;
+}
+
 export function requestToTransportContext(
-  req: IncomingMessage
+  req: IncomingMessage,
+  redactedHeaders: ReadonlySet<string> = defaultRedactedHeaderSet
 ): SpanlyPacketTransportContextHttp {
   return {
     type: 'http',
@@ -175,7 +206,11 @@ export function requestToTransportContext(
     headers: Object.fromEntries(
       Object.entries(req.headers).map(([key, value]) => [
         key,
-        Array.isArray(value) ? value.join(', ') : value || '',
+        redactHeader(
+          key,
+          Array.isArray(value) ? value.join(', ') : value || '',
+          redactedHeaders
+        ),
       ])
     ),
     ...remoteFromRequest(req),
@@ -184,7 +219,8 @@ export function requestToTransportContext(
 
 export function responseToTransportContext(
   res: ServerResponse,
-  req: IncomingMessage
+  req: IncomingMessage,
+  redactedHeaders: ReadonlySet<string> = defaultRedactedHeaderSet
 ): SpanlyPacketTransportContextHttp {
   return {
     type: 'http',
@@ -193,7 +229,11 @@ export function responseToTransportContext(
     headers: Object.fromEntries(
       Object.entries(res.getHeaders()).map(([key, value]) => [
         key,
-        Array.isArray(value) ? value.join(', ') : value?.toString() || '',
+        redactHeader(
+          key,
+          Array.isArray(value) ? value.join(', ') : value?.toString() || '',
+          redactedHeaders
+        ),
       ])
     ),
     ...remoteFromRequest(req),
@@ -214,6 +254,11 @@ export interface MonitorOptions {
     context: SpanlyPacketContext,
     mcpPacket: McpPacket
   ) => McpPacket | null;
+  /**
+   * Additional header names to redact from captured transport context,
+   * on top of DEFAULT_REDACTED_HEADERS. Case-insensitive.
+   */
+  redactHeaders?: string[];
 }
 
 function getServerInfo(mcpServer: MinimalMcpServer) {
@@ -382,6 +427,7 @@ export class SpanlyClient {
           collect('to-client', transportContext, chunk);
         });
       } else if (isStreamableHTTPServerTransport(transport)) {
+        const redactedHeaders = buildRedactedHeaderSet(options?.redactHeaders);
         const originalHandleRequest = transport.handleRequest.bind(transport);
 
         transport.handleRequest = async (
@@ -399,7 +445,7 @@ export class SpanlyClient {
           if (parsedBody !== undefined) {
             collect(
               'from-client',
-              requestToTransportContext(req),
+              requestToTransportContext(req, redactedHeaders),
               parsedBody,
               txnContext
             );
@@ -408,7 +454,7 @@ export class SpanlyClient {
           req.on('data', (chunk) => {
             collect(
               'from-client',
-              requestToTransportContext(req),
+              requestToTransportContext(req, redactedHeaders),
               chunk,
               txnContext
             );
@@ -419,7 +465,7 @@ export class SpanlyClient {
           res.write = ((...args: Parameters<typeof originalWrite>) => {
             collect(
               'to-client',
-              responseToTransportContext(res, req),
+              responseToTransportContext(res, req, redactedHeaders),
               args[0],
               txnContext
             );
@@ -431,7 +477,7 @@ export class SpanlyClient {
           res.end = ((...args: Parameters<typeof originalEnd>) => {
             collect(
               'to-client',
-              responseToTransportContext(res, req),
+              responseToTransportContext(res, req, redactedHeaders),
               args[0],
               txnContext
             );

@@ -134,6 +134,8 @@ func TestParseArgsCustom(t *testing.T) {
 	cfg, err := parseArgs([]string{
 		"--inspect-prefix=/mcp",
 		"--context-header=X-Tenant=environmentId",
+		"--redact-header=X-Custom-Token",
+		"--redact-header=X-Other-Secret",
 		"--buffer-size=42",
 		"--admin-addr=:9090",
 		"localhost:3000",
@@ -153,5 +155,8 @@ func TestParseArgsCustom(t *testing.T) {
 	}
 	if len(cfg.contextHeaders) != 1 || cfg.contextHeaders[0].Field != "environmentId" {
 		t.Errorf("contextHeaders = %+v", cfg.contextHeaders)
+	}
+	if !reflect.DeepEqual(cfg.redactHeaders, []string{"X-Custom-Token", "X-Other-Secret"}) {
+		t.Errorf("redactHeaders = %v", cfg.redactHeaders)
 	}
 }
