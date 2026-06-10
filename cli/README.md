@@ -147,9 +147,10 @@ When `--admin-addr` is set:
 
 The CLI does not export OTel spans — it ships telemetry to Spanly only.
 The inbound `traceparent` header (when present) is preserved verbatim
-on each captured packet, and the Spanly dashboard parses it at view
-time to render a cross-link to the matching span in your APM (Datadog,
-Sentry, Honeycomb, …). No configuration required.
+on each captured packet. Pick your APM provider in the Spanly dashboard
+(Settings, Integrations) and every request with trace context links
+straight to the matching trace in Datadog, Sentry or New Relic. Nothing
+to configure on the CLI side.
 
 ## What gets captured
 
