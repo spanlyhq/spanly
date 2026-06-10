@@ -1,0 +1,83 @@
+# Image to deploy. The chart's appVersion is used as the default tag.
+image:
+  repository: spanly/spanly
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Spanly API key. Provide via a Kubernetes Secret you create separately:
+#   kubectl create secret generic spanly --from-literal=api-key=spanly_us_xxx
+apiKey:
+  secretName: spanly
+  secretKey: api-key
+
+# Optional: override the ingest URL (self-hosted, local dev).
+# Region is auto-detected from the API key prefix when empty.
+ingestURL: ""
+
+# `spanly proxy` configuration.
+# upstream is required: the MCP server you want to monitor.
+proxy:
+  upstream: ""                  # e.g. "http://my-mcp-svc.default.svc:3000"
+  inspectPrefix: "/mcp,/sse"
+  # Repeatable header→context mappings. Allowed fields:
+  # environmentId, projectId, organisationId.
+  contextHeaders: []
+  # - "X-Tenant=environmentId"
+
+# Bounded-buffer / retry tuning.
+buffer:
+  size: 10000
+  retryMaxAttempts: 3
+  retryBackoff: "1s"
+  retryMaxBackoff: "30s"
+
+shutdownGrace: "10s"
+
+# Admin server: /healthz, /readyz, /metrics.
+admin:
+  enabled: true
+  port: 9090
+
+# Resources for the spanly container.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# Pod / Deployment shape.
+replicaCount: 1
+podAnnotations: {}
+podLabels: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Service that exposes the proxy bind port. Point your MCP clients at it.
+service:
+  type: ClusterIP
+  port: 3001
+  annotations: {}
+
+# Optional ServiceMonitor for Prometheus Operator to scrape the admin port.
+serviceMonitor:
+  enabled: false
+  namespace: ""
+  interval: "30s"
+  scrapeTimeout: "10s"
+  labels: {}
+
+# Standard Kubernetes scheduling knobs.
+nodeSelector: {}
+tolerations: []
+affinity: {}

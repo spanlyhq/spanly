@@ -1,6 +1,6 @@
 # Spanly
 
-Open-source SDKs and CLI for [Spanly](https://spanly.com) — observability for
+Open-source SDKs and CLI for [Spanly](https://spanly.com), observability for
 MCP (Model Context Protocol) servers and AI agents.
 
 This repository contains three independently versioned and published artifacts:
@@ -35,11 +35,12 @@ npx -y @spanly/spanly run -- <your-mcp-command>
 brew install spanlyhq/tap/spanly
 ```
 
-See each subdirectory's README for usage details.
+See each subdirectory's README for usage details, or the full
+documentation at [spanly.com/docs](https://spanly.com/docs/).
 
 ## Contributing
 
-Issues and pull requests are welcome — please read [CONTRIBUTING.md](CONTRIBUTING.md)
+Issues and pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md)
 first. This repository is a mirror of an internal monorepo; the contribution
 flow is slightly different from a typical repo, and CONTRIBUTING explains it.
 

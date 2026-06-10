@@ -1,0 +1,25 @@
+# Spanly sidecar: Kustomize component.
+#
+# Adds a `spanly` proxy container next to an existing Deployment's primary
+# container. Use this when you want spanly co-located in the same Pod as
+# your MCP server (canonical K8s sidecar pattern).
+#
+# Usage in your kustomization.yaml:
+#
+#   resources:
+#     - my-deployment.yaml
+#   components:
+#     - ../spanly-sidecar
+#
+# Then set the target deployment name and your app port via patches in
+# YOUR kustomization (the patch.yaml here uses placeholders that you
+# override with your actual values).
+
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - path: patch.yaml
+    target:
+      kind: Deployment
+      labelSelector: spanly-sidecar=true

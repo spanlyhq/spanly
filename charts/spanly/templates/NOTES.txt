@@ -1,0 +1,18 @@
+Spanly is now installed.
+
+Service:        {{ include "spanly.fullname" . }}.{{ .Release.Namespace }}.svc
+Proxy port:     {{ .Values.service.port }}
+Upstream:       {{ .Values.proxy.upstream }}
+Inspect prefix: {{ .Values.proxy.inspectPrefix }}
+{{- if .Values.admin.enabled }}
+Admin port:     {{ .Values.admin.port }} (/healthz, /readyz, /metrics)
+{{- end }}
+
+Point your MCP clients at:
+
+  http://{{ include "spanly.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+
+Tail metrics:
+
+  kubectl port-forward svc/{{ include "spanly.fullname" . }} {{ .Values.admin.port }}:{{ .Values.admin.port }}
+  curl localhost:{{ .Values.admin.port }}/metrics

@@ -25,9 +25,8 @@ const DIST_DIR = path.join(CLI_DIR, 'dist');
 const OUT_DIR = path.join(CLI_DIR, 'dist-npm');
 const WRAPPER_NAME = '@spanly/spanly';
 const BIN_NAME = 'spanly';
-// Internal monorepo URL on purpose: the Copybara mirror rewrites
-// github.com/spanlyhq/spanly -> github.com/spanlyhq/spanly across cli/** before
-// the public repo builds and publishes, so the published package.json is clean.
+// Public repo URL: npm provenance requires the repository field to match the
+// repo the publish workflow runs in (the public mirror).
 const REPOSITORY = 'https://github.com/spanlyhq/spanly';
 const HOMEPAGE = 'https://spanly.com';
 

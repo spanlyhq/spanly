@@ -50,10 +50,13 @@ class MonitorOptions:
 
 
 def _resolve_low_level_server(server: Any) -> Any:
-    """Accept both MCPServer and low-level Server, return the low-level Server."""
-    # MCPServer (high-level) stores the low-level Server in _lowlevel_server
+    """Accept both high-level and low-level servers, return the low-level Server."""
+    # MCPServer (upcoming mcp releases) stores the low-level Server in
+    # _lowlevel_server; FastMCP (mcp 1.x) stores it in _mcp_server.
     if hasattr(server, "_lowlevel_server"):
         return server._lowlevel_server
+    if hasattr(server, "_mcp_server"):
+        return server._mcp_server
     return server
 
 

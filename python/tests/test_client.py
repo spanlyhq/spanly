@@ -89,6 +89,15 @@ def test_resolve_low_level_server_from_mcp_server():
     assert _resolve_low_level_server(FakeHighLevel()) is low_level
 
 
+def test_resolve_low_level_server_from_fastmcp():
+    low_level = FakeServer()
+
+    class FakeFastMCP:
+        _mcp_server = low_level
+
+    assert _resolve_low_level_server(FakeFastMCP()) is low_level
+
+
 def test_resolve_low_level_server_passthrough():
     server = FakeServer()
     assert _resolve_low_level_server(server) is server

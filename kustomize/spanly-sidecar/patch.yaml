@@ -1,0 +1,65 @@
+# Strategic-merge patch that adds the `spanly` proxy as a sidecar
+# container in the same Pod as the user's app.
+#
+# Assumptions:
+#  - The target Deployment has the label `spanly-sidecar: "true"`.
+#  - The user's app listens on localhost:3000 (override via APP_PORT below).
+#  - A Secret named `spanly` exists in the namespace with key `api-key`.
+#  - MCP clients connect to the spanly bind port (3001) on the Pod.
+#
+# Override these defaults by adding additional patches in your own
+# kustomization.yaml; Kustomize merges them into this base.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ANY  # patched targets are selected by label, name is irrelevant
+spec:
+  template:
+    spec:
+      containers:
+        - name: spanly
+          image: spanly/spanly:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - proxy
+            - --inspect-prefix=/mcp,/sse
+            - --admin-addr=:9090
+            - localhost:3000
+            - :3001
+          env:
+            - name: SPANLY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: spanly
+                  key: api-key
+          ports:
+            - name: proxy
+              containerPort: 3001
+            - name: admin
+              containerPort: 9090
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: admin
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: admin
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

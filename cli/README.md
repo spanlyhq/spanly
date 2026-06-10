@@ -1,19 +1,20 @@
-# spanly — observability CLI for MCP servers
+# spanly: observability CLI for MCP servers
 
 A small Go binary that captures traffic from your MCP server and ships it
-to [Spanly](https://spanly.com). Two modes:
+to [Spanly](https://spanly.com). Full documentation lives at
+[spanly.com/docs/cli](https://spanly.com/docs/cli/). Two modes:
 
-- **`spanly run -- <cmd>`** — wraps a child MCP server you start.
+- **`spanly run -- <cmd>`**: wraps a child MCP server you start.
   Works for both **stdio** and **HTTP** transports. Zero code change,
   zero MCP-client config change. _This is the default path._
-- **`spanly proxy <upstream> <bind>`** — standalone HTTP/SSE reverse
+- **`spanly proxy <upstream> <bind>`**: standalone HTTP/SSE reverse
   proxy. Use when you can't wrap the child (third-party services,
   K8s declarative sidecar containers, network-level interception).
 
 For language-specific in-process control (per-request `onCollect` hooks,
 multi-tenant tagging beyond `--context-header`), see
-[`@spanly/sdk`](../../packages/public/spanly) and
-[`spanly-python`](../../packages/public/spanly-python).
+[`@spanly/sdk`](https://github.com/spanlyhq/spanly/tree/main/js) and
+[`spanly` on PyPI](https://github.com/spanlyhq/spanly/tree/main/python).
 
 ## 30-second demo
 
@@ -22,7 +23,7 @@ export SPANLY_API_KEY="spanly_us_..."
 npx -y @spanly/spanly run -- node ./server.js
 ```
 
-That's it. Run your MCP server normally — telemetry shows up in the
+That's it. Run your MCP server normally. Telemetry shows up in the
 Spanly dashboard.
 
 For HTTP MCP servers, set `--port`:
@@ -52,7 +53,7 @@ binary onto your `PATH`. Override with `SPANLY_VERSION` or
 npx -y @spanly/spanly run -- <your-mcp-command>
 ```
 
-Runs without any pre-install — ideal for embedding directly in Claude
+Runs without any pre-install. Ideal for embedding directly in Claude
 Desktop, Cursor, or Windsurf server configs.
 
 ### Homebrew
@@ -70,6 +71,9 @@ Grab the latest binary from the [Releases page](https://github.com/spanlyhq/span
 ```bash
 go install github.com/spanlyhq/spanly/cli@latest
 ```
+
+Installs as `cli` (the module path's last element); rename the binary to
+`spanly` or invoke it as `cli`.
 
 ### Docker
 
@@ -139,13 +143,13 @@ Inbound headers recognized by both `run` and `proxy`:
 
 When `--admin-addr` is set:
 
-- `GET /healthz` — 200 if the listener is up.
-- `GET /readyz` — 200 if the upstream is reachable (1s cache).
-- `GET /metrics` — Prometheus text format. Counters: packets collected/sent/dropped/failed, retry attempts, buffer depth, request counts by inspection class.
+- `GET /healthz`: 200 if the listener is up.
+- `GET /readyz`: 200 if the upstream is reachable (1s cache).
+- `GET /metrics`: Prometheus text format. Counters: packets collected/sent/dropped/failed, retry attempts, buffer depth, request counts by inspection class.
 
 ## OpenTelemetry
 
-The CLI does not export OTel spans — it ships telemetry to Spanly only.
+The CLI does not export OTel spans. It ships telemetry to Spanly only.
 The inbound `traceparent` header (when present) is preserved verbatim
 on each captured packet. Pick your APM provider in the Spanly dashboard
 (Settings, Integrations) and every request with trace context links
@@ -157,11 +161,11 @@ to configure on the CLI side.
 For every JSON-RPC packet on inspected paths:
 
 - The raw JSON-RPC 2.0 body.
-- HTTP method, path, and headers (including `mcp-session-id`) — HTTP mode only.
-  Credential-bearing headers (`Authorization`, `Cookie`, `Set-Cookie`,
-  `Proxy-Authorization`, `X-Api-Key`) are replaced with `[REDACTED]` before
-  the packet leaves your machine; add more with `--redact-header`. The
-  proxied request and response keep their original headers.
+- HTTP method, path, and headers (HTTP mode only). Credential-bearing
+  headers (`Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization`,
+  `X-Api-Key`) are replaced with `[REDACTED]` before the packet leaves
+  your machine; add more with `--redact-header`. The proxied request and
+  response keep their original headers.
 - A timestamp and the per-process `spanlyClientId`/`spanlyMonitorId`.
 
 SSE (`text/event-stream`) responses are streamed to the client verbatim; each
@@ -201,16 +205,16 @@ reverse_proxy spanly:3001 {
 
 | Tool | Where |
 |---|---|
-| Helm chart | [`charts/spanly`](../../charts/spanly) — standalone Pod + Service in front of an internal MCP. |
-| Kustomize component | [`kustomize/spanly-sidecar`](../../kustomize/spanly-sidecar) — co-locate spanly as a sidecar in your existing Pod. |
-| Docker image | `spanly/spanly:<tag>`, `ghcr.io/spanly/spanly:<tag>` |
+| Helm chart | [`charts/spanly`](https://github.com/spanlyhq/spanly/tree/main/charts/spanly): standalone Pod + Service in front of an internal MCP. |
+| Kustomize component | [`kustomize/spanly-sidecar`](https://github.com/spanlyhq/spanly/tree/main/kustomize/spanly-sidecar): co-locate spanly as a sidecar in your existing Pod. |
+| Docker image | `spanly/spanly:<tag>`, `ghcr.io/spanlyhq/spanly:<tag>` |
 
 ## Environment variables
 
 | Variable | Required | Description |
 |---|---|---|
 | `SPANLY_API_KEY` | yes | Region detected from prefix (`spanly_us_*` / `spanly_eu_*`). |
-| `SPANLY_INGEST_URL` | no | Override ingest base URL (self-hosted / local dev). |
+| `SPANLY_INGEST_URL` | no | Override ingest base URL (local development against a non-production stack). |
 
 ## Development
 
@@ -222,12 +226,13 @@ go vet ./...
 
 ## Migrating from the old `spanly <upstream> [bind]` syntax
 
-See [MIGRATING.md](./MIGRATING.md). TL;DR: every command needs a
-subcommand now (`spanly proxy ...` or `spanly run ...`).
+Every command needs a subcommand now: the old `spanly <upstream> [bind]`
+form is `spanly proxy <upstream> <bind>`, and wrapping a child process
+is `spanly run -- <cmd>`.
 
 ## What's not (yet) supported
 
-- **Windows** — best-effort, not regression-tested. Use WSL.
-- **WebSockets** — only HTTP, SSE, and stdio.
-- **TLS termination** on the bind side — front spanly with your own
+- **Windows**: best-effort, not regression-tested. Use WSL.
+- **WebSockets**: only HTTP, SSE, and stdio.
+- **TLS termination** on the bind side: front spanly with your own
   reverse proxy.
