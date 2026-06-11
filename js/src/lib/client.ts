@@ -305,20 +305,6 @@ function headersArgContainsSessionId(arg: unknown): boolean {
   return false;
 }
 
-function getServerInfo(mcpServer: MinimalMcpServer) {
-  type MinimalMcpServerExtended = MinimalMcpServer & {
-    server?: {
-      _serverInfo?: {
-        name: string;
-        version: string;
-      };
-    };
-  };
-
-  const mcpServerExtended = mcpServer as MinimalMcpServerExtended;
-  return mcpServerExtended.server?._serverInfo;
-}
-
 export class SpanlyClient {
   public clientId: string;
   public url: string;
@@ -418,7 +404,6 @@ export class SpanlyClient {
       const context: SpanlyPacketContext = {
         spanlyClientId: this.clientId,
         spanlyMonitorId: crypto.randomUUID(),
-        mcpServerInfo: getServerInfo(mcpServer),
       };
 
       const collect = (

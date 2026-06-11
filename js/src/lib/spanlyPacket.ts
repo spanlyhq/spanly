@@ -45,13 +45,6 @@ export const spanlyPacketContextSchema = z.object({
   projectId: z.string().optional(),
   environmentId: z.string().optional(),
   organisationId: z.string().optional(),
-
-  mcpServerInfo: z
-    .object({
-      name: z.string(),
-      version: z.string(),
-    })
-    .optional(),
 });
 
 export type SpanlyPacketContext = z.infer<typeof spanlyPacketContextSchema>;

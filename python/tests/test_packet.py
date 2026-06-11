@@ -2,7 +2,6 @@
 
 from spanly._packet import (
     HttpTransportContext,
-    McpServerInfo,
     SpanlyPacket,
     SpanlyPacketContext,
     StdioTransportContext,
@@ -16,7 +15,6 @@ def test_spanly_packet_to_dict_stdio():
         context=SpanlyPacketContext(
             spanly_client_id="client-123",
             spanly_monitor_id="monitor-456",
-            mcp_server_info=McpServerInfo(name="test-server", version="1.0.0"),
         ),
         transport_context=StdioTransportContext(),
         mcp_packet={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
@@ -28,8 +26,6 @@ def test_spanly_packet_to_dict_stdio():
     assert d["direction"] == "from-client"
     assert d["context"]["spanlyClientId"] == "client-123"
     assert d["context"]["spanlyMonitorId"] == "monitor-456"
-    assert d["context"]["mcpServerInfo"]["name"] == "test-server"
-    assert d["context"]["mcpServerInfo"]["version"] == "1.0.0"
     assert d["transportContext"] == {"type": "stdio"}
     assert d["mcpPacket"]["jsonrpc"] == "2.0"
     assert d["mcpPacket"]["method"] == "tools/list"
@@ -57,8 +53,6 @@ def test_spanly_packet_to_dict_http():
     assert d["transportContext"]["httpMethod"] == "post"
     assert d["transportContext"]["path"] == "/mcp"
     assert d["transportContext"]["headers"] == {"content-type": "application/json"}
-    # mcpServerInfo should not be in output when None
-    assert "mcpServerInfo" not in d["context"]
 
 
 def test_context_optional_fields():

@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 import anyio
 
-from spanly._packet import McpServerInfo, SpanlyPacketContext
+from spanly._packet import SpanlyPacketContext
 from spanly._sender import AsyncSender
 from spanly._session import patch_streamable_http_app
 from spanly._transport import InterceptedReceiveStream, InterceptedSendStream
@@ -63,15 +63,6 @@ def _resolve_low_level_server(server: Any) -> Any:
     if hasattr(server, "_mcp_server"):
         return server._mcp_server
     return server
-
-
-def _get_server_info(server: Any) -> McpServerInfo | None:
-    """Extract server name and version from a low-level Server instance."""
-    name = getattr(server, "name", None)
-    version = getattr(server, "version", None)
-    if name:
-        return McpServerInfo(name=name, version=version or "unknown")
-    return None
 
 
 class SpanlyClient:
@@ -130,7 +121,6 @@ class SpanlyClient:
             context = SpanlyPacketContext(
                 spanly_client_id=client.client_id,
                 spanly_monitor_id=monitor_id,
-                mcp_server_info=_get_server_info(low_level_server),
             )
 
             sender = AsyncSender(

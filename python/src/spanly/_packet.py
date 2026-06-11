@@ -7,16 +7,9 @@ from typing import Any, Literal
 
 
 @dataclass
-class McpServerInfo:
-    name: str
-    version: str
-
-
-@dataclass
 class SpanlyPacketContext:
     spanly_client_id: str
     spanly_monitor_id: str
-    mcp_server_info: McpServerInfo | None = None
     project_id: str | None = None
     environment_id: str | None = None
     organisation_id: str | None = None
@@ -26,11 +19,6 @@ class SpanlyPacketContext:
             "spanlyClientId": self.spanly_client_id,
             "spanlyMonitorId": self.spanly_monitor_id,
         }
-        if self.mcp_server_info is not None:
-            d["mcpServerInfo"] = {
-                "name": self.mcp_server_info.name,
-                "version": self.mcp_server_info.version,
-            }
         if self.project_id is not None:
             d["projectId"] = self.project_id
         if self.environment_id is not None:

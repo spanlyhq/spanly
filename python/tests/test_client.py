@@ -6,8 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from spanly._client import SpanlyClient, MonitorOptions, _resolve_low_level_server, _get_server_info, _parse_region_from_api_key
-from spanly._packet import McpServerInfo
+from spanly._client import SpanlyClient, MonitorOptions, _resolve_low_level_server, _parse_region_from_api_key
 
 
 class FakeServer:
@@ -77,7 +76,7 @@ def test_parse_region_from_api_key():
         _parse_region_from_api_key("spanly_invalid")
 
 
-# --- resolve / get_server_info tests ---
+# --- resolve tests ---
 
 
 def test_resolve_low_level_server_from_mcp_server():
@@ -101,23 +100,6 @@ def test_resolve_low_level_server_from_fastmcp():
 def test_resolve_low_level_server_passthrough():
     server = FakeServer()
     assert _resolve_low_level_server(server) is server
-
-
-def test_get_server_info():
-    server = FakeServer(name="my-server", version="2.0.0")
-    info = _get_server_info(server)
-    assert info == McpServerInfo(name="my-server", version="2.0.0")
-
-
-def test_get_server_info_no_name():
-    server = MagicMock(spec=[])
-    assert _get_server_info(server) is None
-
-
-def test_get_server_info_no_version():
-    server = FakeServer(name="my-server", version=None)  # type: ignore[arg-type]
-    info = _get_server_info(server)
-    assert info == McpServerInfo(name="my-server", version="unknown")
 
 
 # --- monitor() tests ---
