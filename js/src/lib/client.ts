@@ -1,4 +1,5 @@
 import {
+  SESSION_TERMINATED_METHOD,
   SpanlyPacket,
   SpanlyPacketContext,
   SpanlyPacketTransportContext,
@@ -276,6 +277,11 @@ function newSyntheticSessionId(): string {
   return `${SYNTHETIC_SESSION_ID_PREFIX}${crypto.randomUUID()}`;
 }
 
+function sessionIdFromRequest(req: IncomingMessage): string | undefined {
+  const value = req.headers[SESSION_ID_HEADER];
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
 function containsInitializeRequest(body: unknown): boolean {
   try {
     const obj = bodyToObject(body);
@@ -475,6 +481,37 @@ export class SpanlyClient {
           let sawInitialize =
             parsedBody !== undefined && containsInitializeRequest(parsedBody);
 
+          // A DELETE that succeeds ends the session (MCP Streamable HTTP
+          // explicit termination). Nothing JSON-RPC crosses the wire in
+          // either direction, so synthesize a packet once the server has
+          // confirmed the termination. Requires the session header: a
+          // DELETE without one terminates nothing (stateless servers
+          // answer 200 regardless).
+          const terminatedSessionId = sessionIdFromRequest(req);
+          let terminationCollected = false;
+          const maybeCollectTermination = () => {
+            if (
+              terminationCollected ||
+              req.method !== 'DELETE' ||
+              terminatedSessionId === undefined ||
+              res.statusCode < 200 ||
+              res.statusCode >= 300
+            ) {
+              return;
+            }
+            terminationCollected = true;
+            collect(
+              'from-client',
+              requestToTransportContext(req, redactedHeaders),
+              {
+                jsonrpc: '2.0',
+                method: SESSION_TERMINATED_METHOD,
+                params: { sessionId: terminatedSessionId },
+              },
+              txnContext
+            );
+          };
+
           // Must run before headers flush and before the to-client collect,
           // so both the client and the captured response carry the ID.
           const maybeInjectSessionId = (statusCode: number) => {
@@ -549,6 +586,7 @@ export class SpanlyClient {
               args[0],
               txnContext
             );
+            maybeCollectTermination();
             return originalEnd.apply(res, args);
           }) as typeof originalEnd;
 

@@ -8,6 +8,7 @@ import {
   requestToTransportContext,
   responseToTransportContext,
 } from './client.js';
+import { SESSION_TERMINATED_METHOD } from './spanlyPacket.js';
 
 function makeRequest(headers: Record<string, string>): IncomingMessage {
   const req = new IncomingMessage(new Socket());
@@ -220,5 +221,137 @@ describe('session ID injection', () => {
     await transport.handleRequest(req, res, initializeBody);
 
     expect(res.getHeader('mcp-session-id')).toBeUndefined();
+  });
+});
+
+describe('session termination capture', () => {
+  beforeEach(() => {
+    jest
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () =>
+        new Response(JSON.stringify({ success: true }), { status: 200 })
+      );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  interface MonitoredTransport {
+    handleRequest(
+      req: IncomingMessage,
+      res: ServerResponse,
+      parsedBody?: unknown
+    ): Promise<void>;
+  }
+
+  async function monitoredTransport(
+    serverBehavior: (res: ServerResponse) => void,
+    options?: MonitorOptions
+  ): Promise<MonitoredTransport> {
+    const transport: MonitoredTransport = {
+      handleRequest: async (req, res) => {
+        await new Promise((resolve) => setImmediate(resolve));
+        serverBehavior(res);
+      },
+    };
+    const connected: unknown[] = [];
+    const mcpServer = {
+      connect: async (t: unknown) => {
+        connected.push(t);
+      },
+    };
+    const client = new SpanlyClient({ apiKey: 'spanly_us_test' });
+    client.monitor(mcpServer, options);
+    await mcpServer.connect(transport);
+    return transport;
+  }
+
+  function makeDeleteRequest(headers: Record<string, string>): IncomingMessage {
+    const req = makeRequest(headers);
+    req.method = 'DELETE';
+    return req;
+  }
+
+  async function collectedPackets(): Promise<
+    { direction: string; mcpPacket: Record<string, unknown>; transportContext: Record<string, unknown> }[]
+  > {
+    // collect() is fire-and-forget; let the pending posts run.
+    await new Promise((resolve) => setImmediate(resolve));
+    return (globalThis.fetch as jest.Mock).mock.calls.map(([, init]) =>
+      JSON.parse((init as RequestInit).body as string)
+    );
+  }
+
+  it('records a synthetic notification when a DELETE terminates the session', async () => {
+    const transport = await monitoredTransport((res) => {
+      res.writeHead(200).end();
+    });
+    const req = makeDeleteRequest({ 'mcp-session-id': 'session-1' });
+    const res = new ServerResponse(req);
+
+    await transport.handleRequest(req, res);
+
+    const packets = await collectedPackets();
+    expect(packets).toHaveLength(1);
+    expect(packets[0].direction).toBe('from-client');
+    expect(packets[0].mcpPacket).toEqual({
+      jsonrpc: '2.0',
+      method: SESSION_TERMINATED_METHOD,
+      params: { sessionId: 'session-1' },
+    });
+    expect(packets[0].transportContext).toMatchObject({
+      type: 'http',
+      httpMethod: 'delete',
+      headers: { 'mcp-session-id': 'session-1' },
+    });
+  });
+
+  it('does not record termination when the server rejects the DELETE', async () => {
+    const transport = await monitoredTransport((res) => {
+      res.writeHead(404).end();
+    });
+    const req = makeDeleteRequest({ 'mcp-session-id': 'unknown' });
+    const res = new ServerResponse(req);
+
+    await transport.handleRequest(req, res);
+
+    expect(await collectedPackets()).toHaveLength(0);
+  });
+
+  it('does not record termination for a DELETE without a session ID', async () => {
+    const transport = await monitoredTransport((res) => {
+      res.writeHead(200).end();
+    });
+    const req = makeDeleteRequest({});
+    const res = new ServerResponse(req);
+
+    await transport.handleRequest(req, res);
+
+    expect(await collectedPackets()).toHaveLength(0);
+  });
+
+  it('passes the synthetic packet through onCollect', async () => {
+    const seen: { direction: string; method: unknown }[] = [];
+    const transport = await monitoredTransport(
+      (res) => {
+        res.writeHead(200).end();
+      },
+      {
+        onCollect: (direction, _context, mcpPacket) => {
+          seen.push({ direction, method: mcpPacket.method });
+          return null;
+        },
+      }
+    );
+    const req = makeDeleteRequest({ 'mcp-session-id': 'session-2' });
+    const res = new ServerResponse(req);
+
+    await transport.handleRequest(req, res);
+
+    expect(seen).toEqual([
+      { direction: 'from-client', method: SESSION_TERMINATED_METHOD },
+    ]);
+    expect(await collectedPackets()).toHaveLength(0);
   });
 });

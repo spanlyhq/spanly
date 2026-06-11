@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from spanly._packet import SpanlyPacket, SpanlyPacketContext
+from spanly._packet import SpanlyPacket, SpanlyPacketContext, TransportContext
 from spanly._transport import extract_transport_context, session_message_to_dict
 
 if TYPE_CHECKING:
@@ -42,16 +42,27 @@ class AsyncSender:
         if mcp_packet.get("jsonrpc") != "2.0":
             return
 
+        transport_context = extract_transport_context(
+            session_message,
+            redact_headers=options.redact_headers if options else None,
+        )
+
+        self.schedule_packet(direction, context, mcp_packet, transport_context, options)
+
+    def schedule_packet(
+        self,
+        direction: str,
+        context: SpanlyPacketContext,
+        mcp_packet: dict[str, Any],
+        transport_context: TransportContext,
+        options: MonitorOptions | None,
+    ) -> None:
+        """Schedule a fire-and-forget send for an already-built MCP packet."""
         if options and options.on_collect:
             result = options.on_collect(direction, context, mcp_packet)
             if result is None:
                 return
             mcp_packet = result
-
-        transport_context = extract_transport_context(
-            session_message,
-            redact_headers=options.redact_headers if options else None,
-        )
 
         packet = SpanlyPacket(
             timestamp=int(time.time() * 1000),

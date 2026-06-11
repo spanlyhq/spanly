@@ -36,7 +36,28 @@ const (
 	// than the upstream server, so the proxy can recognise (and strip)
 	// its own IDs on inbound requests without keeping state.
 	SyntheticSessionIDPrefix = "spanly-"
+
+	// SessionTerminatedMethod is the synthetic method recorded when a
+	// client ends its session with an HTTP DELETE. Session termination is
+	// transport-level in MCP (no JSON-RPC message exists on the wire), so
+	// Spanly emits this packet itself; the `spanly/` prefix marks it as
+	// synthesized, like the `spanly-` session IDs.
+	SessionTerminatedMethod = "spanly/session/terminated"
 )
+
+// sessionTerminatedPacket builds the synthetic JSON-RPC packet recorded
+// when a DELETE terminates the given session.
+func sessionTerminatedPacket(sessionID string) json.RawMessage {
+	packet, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"method":  SessionTerminatedMethod,
+		"params":  map[string]string{"sessionId": sessionID},
+	})
+	if err != nil {
+		return nil
+	}
+	return packet
+}
 
 // NewSyntheticSessionID returns a fresh session ID carrying the Spanly
 // synthetic prefix.
@@ -316,6 +337,17 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Set on resp.Header (not w.Header()) so the captured response
 		// transport context below carries the ID too.
 		resp.Header.Set(SessionIDHeader, NewSyntheticSessionID())
+	}
+
+	// A DELETE that succeeds ends the session (MCP explicit termination).
+	// No JSON-RPC crosses the wire in either direction, so synthesize a
+	// packet once the upstream has confirmed. Requires the session header:
+	// a DELETE without one terminates nothing.
+	if r.Method == http.MethodDelete &&
+		resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if sessionID := r.Header.Get(SessionIDHeader); sessionID != "" {
+			p.collector.Collect("from-client", override, transport, sessionTerminatedPacket(sessionID))
+		}
 	}
 
 	copyHeaders(w.Header(), resp.Header)

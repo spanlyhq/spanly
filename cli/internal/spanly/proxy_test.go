@@ -779,3 +779,138 @@ func TestContainsInitializeRequest(t *testing.T) {
 		}
 	}
 }
+
+func TestProxyRecordsSessionTerminationOnDelete(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("upstream got method %q, want DELETE", r.Method)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	ingest := newFakeIngest(t, 1)
+	defer ingest.srv.Close()
+
+	proxy, _ := newProxyFor(t, upstream.URL, ingest.srv.URL)
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	req, err := http.NewRequest(http.MethodDelete, proxyServer.URL+"/mcp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(SessionIDHeader, "session-1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	packets := ingest.waitFor(t, 2*time.Second)
+	if len(packets) != 1 {
+		t.Fatalf("got %d packets, want 1", len(packets))
+	}
+	p := packets[0]
+	if p.Direction != "from-client" {
+		t.Errorf("direction = %q, want from-client", p.Direction)
+	}
+	var mcp struct {
+		Method string `json:"method"`
+		Params struct {
+			SessionID string `json:"sessionId"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(p.MCPPacket, &mcp); err != nil {
+		t.Fatalf("unmarshal mcpPacket: %v", err)
+	}
+	if mcp.Method != SessionTerminatedMethod {
+		t.Errorf("method = %q, want %q", mcp.Method, SessionTerminatedMethod)
+	}
+	if mcp.Params.SessionID != "session-1" {
+		t.Errorf("params.sessionId = %q, want session-1", mcp.Params.SessionID)
+	}
+	if p.TransportContext.HTTPMethod != "delete" {
+		t.Errorf("transport httpMethod = %q, want delete", p.TransportContext.HTTPMethod)
+	}
+	if got := p.TransportContext.Headers["mcp-session-id"]; got != "session-1" {
+		t.Errorf("transport mcp-session-id = %q, want session-1", got)
+	}
+}
+
+func TestProxyDoesNotRecordTerminationOnFailedDelete(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer upstream.Close()
+
+	var hits int
+	var mu sync.Mutex
+	ingest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		hits++
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer ingest.Close()
+
+	proxy, _ := newProxyFor(t, upstream.URL, ingest.URL)
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	req, err := http.NewRequest(http.MethodDelete, proxyServer.URL+"/mcp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(SessionIDHeader, "unknown")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	time.Sleep(150 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if hits != 0 {
+		t.Errorf("expected 0 collect calls for a rejected DELETE, got %d", hits)
+	}
+}
+
+func TestProxyDoesNotRecordTerminationWithoutSessionID(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	var hits int
+	var mu sync.Mutex
+	ingest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		hits++
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer ingest.Close()
+
+	proxy, _ := newProxyFor(t, upstream.URL, ingest.URL)
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	req, err := http.NewRequest(http.MethodDelete, proxyServer.URL+"/mcp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	time.Sleep(150 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if hits != 0 {
+		t.Errorf("expected 0 collect calls for a DELETE without session ID, got %d", hits)
+	}
+}

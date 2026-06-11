@@ -5,6 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+# Synthetic method recorded when a client ends its session with an HTTP
+# DELETE. Session termination is transport-level in MCP (no JSON-RPC
+# message exists on the wire), so Spanly emits this packet itself; the
+# ``spanly/`` prefix marks it as synthesized, like the ``spanly-`` session
+# IDs.
+SESSION_TERMINATED_METHOD = "spanly/session/terminated"
+
 
 @dataclass
 class SpanlyPacketContext:

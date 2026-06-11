@@ -107,8 +107,7 @@ class SpanlyClient:
         client = self
         opts = options
 
-        if options is None or options.inject_session_id:
-            patch_streamable_http_app(server)
+        patch_streamable_http_app(server, client=self, options=options)
 
         async def patched_run(
             read_stream: Any,
