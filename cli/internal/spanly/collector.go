@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -95,6 +96,12 @@ type Collector struct {
 
 	queue chan SpanlyPacket
 
+	started      bool
+	stop         chan struct{}
+	drainerDone  chan struct{}
+	exportCtx    context.Context
+	cancelExport context.CancelFunc
+
 	collected   atomic.Int64
 	droppedFull atomic.Int64
 }
@@ -112,10 +119,15 @@ func NewCollector(opts CollectorOptions, sinks ...Sink) (*Collector, error) {
 	if opts.BufferSize <= 0 {
 		opts.BufferSize = defaultBufferSize
 	}
+	exportCtx, cancelExport := context.WithCancel(context.Background())
 	return &Collector{
-		opts:  opts,
-		sinks: sinks,
-		queue: make(chan SpanlyPacket, opts.BufferSize),
+		opts:         opts,
+		sinks:        sinks,
+		queue:        make(chan SpanlyPacket, opts.BufferSize),
+		stop:         make(chan struct{}),
+		drainerDone:  make(chan struct{}),
+		exportCtx:    exportCtx,
+		cancelExport: cancelExport,
 	}, nil
 }
 
@@ -125,40 +137,37 @@ func (c *Collector) Sinks() []Sink { return c.sinks }
 
 // Start launches the drainer goroutine that pulls packets off the queue
 // and exports each to every Sink concurrently. Returns immediately.
-//
-// The drainer exits when ctx is cancelled. Use Drain to wait for the
-// queue to empty before exiting.
-func (c *Collector) Start(ctx context.Context) {
-	go c.drain(ctx)
+// Pair with Close to flush and release resources.
+func (c *Collector) Start() {
+	c.started = true
+	go c.drainLoop()
 }
 
-// Drain blocks until the queue is empty or the timeout elapses. Used at
-// graceful-shutdown to flush in-flight telemetry before exiting. Sinks
-// with internal batching should additionally be Shutdown'd by the
-// caller after Drain returns.
-func (c *Collector) Drain(timeout time.Duration) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if len(c.queue) == 0 {
-			return
+// Close flushes the queue and shuts every sink down. The drainer keeps
+// exporting until the queue is empty; if that takes longer than grace,
+// in-flight exports are aborted and remaining packets dropped. Safe to
+// call exactly once, after Start.
+func (c *Collector) Close(grace time.Duration) error {
+	if c.started {
+		close(c.stop)
+		select {
+		case <-c.drainerDone:
+		case <-time.After(grace):
+			c.cancelExport()
+			<-c.drainerDone
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
-}
+	c.cancelExport()
 
-// Shutdown calls Shutdown on every sink with the given context. Errors
-// are returned joined; a nil return means every sink shut down cleanly.
-func (c *Collector) Shutdown(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
 	var errs []error
 	for _, s := range c.sinks {
 		if err := s.Shutdown(ctx); err != nil {
 			errs = append(errs, err)
 		}
 	}
-	if len(errs) == 0 {
-		return nil
-	}
-	return joinSinkErrors(errs)
+	return errors.Join(errs...)
 }
 
 // Collect enqueues a packet for delivery. If the queue is full the packet
@@ -204,13 +213,23 @@ func (c *Collector) Collect(direction string, override PacketContext, transport 
 	}
 }
 
-func (c *Collector) drain(ctx context.Context) {
+func (c *Collector) drainLoop() {
+	defer close(c.drainerDone)
 	for {
 		select {
 		case packet := <-c.queue:
-			c.fanOut(ctx, packet)
-		case <-ctx.Done():
-			return
+			c.fanOut(c.exportCtx, packet)
+		case <-c.stop:
+			// Flush whatever is already queued, then exit. Close aborts
+			// this via exportCtx if it outlives the grace period.
+			for {
+				select {
+				case packet := <-c.queue:
+					c.fanOut(c.exportCtx, packet)
+				default:
+					return
+				}
+			}
 		}
 	}
 }

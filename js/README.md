@@ -69,6 +69,18 @@ spanly.monitor(mcpServer, {
 });
 ```
 
+### Session grouping for stateless servers
+
+If your Streamable HTTP transport runs sessionless
+(`sessionIdGenerator: undefined`), the SDK assigns a synthetic
+`Mcp-Session-Id` (prefixed `spanly-`) on initialize responses so Spanly
+can still group requests into sessions. Servers that assign their own
+session IDs are untouched. Opt out with:
+
+```ts
+spanly.monitor(mcpServer, { injectSessionId: false });
+```
+
 ### Trace context propagation
 
 The SDK preserves the W3C `traceparent` value verbatim on every captured

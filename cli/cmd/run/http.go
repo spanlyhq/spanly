@@ -52,11 +52,12 @@ func runHTTP(ctx context.Context, cfg *config, collector *spanly.Collector, vers
 
 	upstream := &url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", childPort)}
 	proxy, err := spanly.NewProxy(spanly.ProxyOptions{
-		Upstream:       upstream,
-		Collector:      collector,
-		InspectPrefix:  cfg.inspectPrefix,
-		ContextHeaders: cfg.contextHeaders,
-		RedactHeaders:  cfg.redactHeaders,
+		Upstream:        upstream,
+		Collector:       collector,
+		InspectPrefix:   cfg.inspectPrefix,
+		ContextHeaders:  cfg.contextHeaders,
+		RedactHeaders:   cfg.redactHeaders,
+		InjectSessionID: cfg.injectSessionID,
 	})
 	if err != nil {
 		_ = cmd.Process.Signal(syscall.SIGTERM)
@@ -91,7 +92,7 @@ func runHTTP(ctx context.Context, cfg *config, collector *spanly.Collector, vers
 	}()
 
 	// Block until either: the wrapper is signalled, the child exits, or
-	// the wrapper's HTTP server errors out.
+	// one of the wrapper's listeners errors out.
 	select {
 	case <-ctx.Done():
 		log.Printf("shutdown signal received, draining...")
@@ -129,6 +130,13 @@ func runHTTP(ctx context.Context, cfg *config, collector *spanly.Collector, vers
 		}
 		<-childExited
 		return 1, fmt.Errorf("proxy listener: %w", err)
+
+	case err := <-adminErrCh:
+		if cmd.Process != nil {
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+		}
+		<-childExited
+		return 1, fmt.Errorf("admin server: %w", err)
 	}
 }
 

@@ -106,9 +106,8 @@ func TestCollectPostsSpanlyPacket(t *testing.T) {
 
 	sink := newSink(t, "spanly_us_key", srv.URL)
 	c := mustCollector(t, CollectorOptions{ClientID: "cid-1", MonitorID: "mid-1"}, sink)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	c.Start(ctx)
+	c.Start()
+	t.Cleanup(func() { _ = c.Close(time.Second) })
 
 	transport := TransportContext{Type: "http", HTTPMethod: "post", Path: "/mcp", Headers: map[string]string{"x-a": "1"}}
 	mcp := json.RawMessage(`{"jsonrpc":"2.0","method":"ping","id":1}`)
@@ -151,9 +150,8 @@ func TestCollectAppliesContextOverride(t *testing.T) {
 
 	sink := newSink(t, "spanly_us_key", srv.URL)
 	c := mustCollector(t, CollectorOptions{ClientID: "cid", MonitorID: "default-mid"}, sink)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	c.Start(ctx)
+	c.Start()
+	t.Cleanup(func() { _ = c.Close(time.Second) })
 
 	c.Collect("from-client",
 		PacketContext{
@@ -196,9 +194,8 @@ func TestCollectorBufferDropsWhenFull(t *testing.T) {
 
 	sink := newSink(t, "spanly_us_key", srv.URL)
 	c := mustCollector(t, CollectorOptions{ClientID: "cid", MonitorID: "mid", BufferSize: 4}, sink)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	c.Start(ctx)
+	c.Start()
+	t.Cleanup(func() { _ = c.Close(time.Second) })
 
 	mcp := json.RawMessage(`{"jsonrpc":"2.0"}`)
 	for i := 0; i < 20; i++ {
@@ -220,6 +217,31 @@ func TestCollectorBufferDropsWhenFull(t *testing.T) {
 	}
 	if m.Collected+m.DroppedFull != 20 {
 		t.Errorf("collected+dropped = %d, want 20 (metrics: %+v)", m.Collected+m.DroppedFull, m)
+	}
+}
+
+func TestCloseFlushesQueuedPackets(t *testing.T) {
+	// Slow ingest so packets are still queued when Close is called.
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(20 * time.Millisecond)
+		hits.Add(1)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer srv.Close()
+
+	sink := newSink(t, "spanly_us_key", srv.URL)
+	c := mustCollector(t, CollectorOptions{ClientID: "cid", MonitorID: "mid"}, sink)
+	c.Start()
+
+	for i := 0; i < 5; i++ {
+		c.Collect("from-client", PacketContext{}, TransportContext{}, json.RawMessage(`{"jsonrpc":"2.0"}`))
+	}
+	if err := c.Close(5 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if got := hits.Load(); got != 5 {
+		t.Errorf("ingest received %d packets, want 5 (Close must flush the queue)", got)
 	}
 }
 
@@ -247,9 +269,8 @@ func TestCollectorRetriesOn5xx(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := mustCollector(t, CollectorOptions{ClientID: "cid", MonitorID: "mid"}, sink)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	c.Start(ctx)
+	c.Start()
+	t.Cleanup(func() { _ = c.Close(time.Second) })
 
 	c.Collect("from-client", PacketContext{}, TransportContext{}, json.RawMessage(`{"jsonrpc":"2.0"}`))
 
@@ -313,9 +334,8 @@ func TestCollectorFansOutToAllSinks(t *testing.T) {
 	b := &stubSink{name: "b", failErr: errors.New("nope")}
 	c := mustCollector(t, CollectorOptions{ClientID: "cid", MonitorID: "mid"}, a, b)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	c.Start(ctx)
+	c.Start()
+	t.Cleanup(func() { _ = c.Close(time.Second) })
 
 	for i := 0; i < 3; i++ {
 		c.Collect("from-client", PacketContext{}, TransportContext{}, json.RawMessage(`{"jsonrpc":"2.0"}`))

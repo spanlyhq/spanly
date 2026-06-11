@@ -1,12 +1,26 @@
 {
   "name": "@spanly/sdk",
   "version": "0.1.1",
+  "description": "Spanly TypeScript SDK: observability for MCP servers and AI agents. Captures tool calls, prompts, resources, and JSON-RPC traffic.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "observability",
+    "monitoring",
+    "telemetry",
+    "ai",
+    "agents",
+    "spanly"
+  ],
   "license": "Apache-2.0",
+  "homepage": "https://spanly.com",
+  "bugs": "https://github.com/spanlyhq/spanly/issues",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spanlyhq/spanly.git",
     "directory": "js"
   },
+  "sideEffects": false,
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

@@ -24,12 +24,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/spanlyhq/spanly/cli/internal/spanly"
 )
-
-const defaultInspectPrefix = "/mcp,/sse"
 
 // Main runs the `spanly proxy` subcommand.
 func Main(args []string, version string) error {
@@ -43,14 +39,8 @@ func Main(args []string, version string) error {
 		return err
 	}
 
-	apiKey := os.Getenv("SPANLY_API_KEY")
-	if apiKey == "" {
-		return errors.New("SPANLY_API_KEY environment variable is required")
-	}
-
-	spanlySink, err := spanly.NewSpanlySink(spanly.SpanlySinkOptions{
-		APIKey:         apiKey,
-		IngestURL:      os.Getenv("SPANLY_INGEST_URL"),
+	collector, sink, err := spanly.NewPipelineFromEnv(spanly.PipelineOptions{
+		BufferSize:     cfg.bufferSize,
 		MaxAttempts:    cfg.maxAttempts,
 		InitialBackoff: cfg.initialBackoff,
 		MaxBackoff:     cfg.maxBackoff,
@@ -59,21 +49,13 @@ func Main(args []string, version string) error {
 		return err
 	}
 
-	collector, err := spanly.NewCollector(spanly.CollectorOptions{
-		ClientID:   uuid.NewString(),
-		MonitorID:  uuid.NewString(),
-		BufferSize: cfg.bufferSize,
-	}, spanlySink)
-	if err != nil {
-		return err
-	}
-
 	proxy, err := spanly.NewProxy(spanly.ProxyOptions{
-		Upstream:       cfg.upstream,
-		Collector:      collector,
-		InspectPrefix:  cfg.inspectPrefix,
-		ContextHeaders: cfg.contextHeaders,
-		RedactHeaders:  cfg.redactHeaders,
+		Upstream:        cfg.upstream,
+		Collector:       collector,
+		InspectPrefix:   cfg.inspectPrefix,
+		ContextHeaders:  cfg.contextHeaders,
+		RedactHeaders:   cfg.redactHeaders,
+		InjectSessionID: cfg.injectSessionID,
 	})
 	if err != nil {
 		return err
@@ -86,12 +68,13 @@ func Main(args []string, version string) error {
 	}
 
 	log.Printf("proxying %s -> %s (version %s, ingest %s, inspect=%v)",
-		cfg.bindAddr, cfg.upstream.String(), version, spanlySink.IngestURL(), cfg.inspectPrefix)
+		cfg.bindAddr, cfg.upstream.String(), version, sink.IngestURL(), cfg.inspectPrefix)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	collector.Start(ctx)
+	collector.Start()
+	defer collector.Close(cfg.shutdownGrace)
 
 	adminErrCh := make(chan error, 1)
 	if cfg.adminAddr != "" {
@@ -117,8 +100,6 @@ func Main(args []string, version string) error {
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("shutdown: %w", err)
 		}
-		collector.Drain(cfg.shutdownGrace)
-		_ = collector.Shutdown(shutdownCtx)
 		return nil
 	case err := <-proxyErrCh:
 		return err
@@ -128,24 +109,25 @@ func Main(args []string, version string) error {
 }
 
 type config struct {
-	upstream       *url.URL
-	bindAddr       string
-	inspectPrefix  []string
-	contextHeaders []spanly.HeaderMapping
-	redactHeaders  []string
-	bufferSize     int
-	maxAttempts    int
-	initialBackoff time.Duration
-	maxBackoff     time.Duration
-	shutdownGrace  time.Duration
-	adminAddr      string
+	upstream        *url.URL
+	bindAddr        string
+	inspectPrefix   []string
+	contextHeaders  []spanly.HeaderMapping
+	redactHeaders   []string
+	bufferSize      int
+	maxAttempts     int
+	initialBackoff  time.Duration
+	maxBackoff      time.Duration
+	shutdownGrace   time.Duration
+	adminAddr       string
+	injectSessionID bool
 }
 
 func parseArgs(args []string) (*config, error) {
 	fs := flag.NewFlagSet("proxy", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 
-	inspectPrefix := fs.String("inspect-prefix", defaultInspectPrefix,
+	inspectPrefix := fs.String("inspect-prefix", spanly.DefaultInspectPrefix,
 		`Comma-separated path prefixes to inspect for JSON-RPC. Other paths pass through with no telemetry. Empty string = inspect all paths.`)
 	bufferSize := fs.Int("buffer-size", 10000,
 		"Maximum packets buffered when ingest is unreachable.")
@@ -159,12 +141,14 @@ func parseArgs(args []string) (*config, error) {
 		"Time to flush in-flight telemetry on graceful shutdown.")
 	adminAddr := fs.String("admin-addr", "",
 		"Listen address for /healthz, /readyz, /metrics (e.g. ':9090'). Empty = disabled.")
+	injectSessionID := fs.Bool("inject-session-id", true,
+		"Assign a synthetic Mcp-Session-Id on initialize responses when the upstream does not set one, so sessionless servers still get session grouping.")
 
-	var contextHeaders stringSliceFlag
+	var contextHeaders spanly.StringSliceFlag
 	fs.Var(&contextHeaders, "context-header",
 		`Map an HTTP header to a PacketContext field, e.g. 'X-Tenant=environmentId'. Repeatable. Allowed fields: environmentId, projectId, organisationId.`)
 
-	var redactHeaders stringSliceFlag
+	var redactHeaders spanly.StringSliceFlag
 	fs.Var(&redactHeaders, "redact-header",
 		`Additional HTTP header to redact from captured telemetry, e.g. 'X-Custom-Token'. Repeatable. Authorization, Cookie, Set-Cookie, Proxy-Authorization and X-Api-Key are always redacted.`)
 
@@ -186,59 +170,27 @@ func parseArgs(args []string) (*config, error) {
 		return nil, err
 	}
 
-	prefixes := parseInspectPrefix(*inspectPrefix)
+	prefixes := spanly.ParseInspectPrefix(*inspectPrefix)
 
-	mappings, err := parseContextHeaders(contextHeaders)
+	mappings, err := spanly.ParseContextHeaders(contextHeaders)
 	if err != nil {
 		return nil, err
 	}
 
 	return &config{
-		upstream:       upstream,
-		bindAddr:       bindAddr,
-		inspectPrefix:  prefixes,
-		contextHeaders: mappings,
-		redactHeaders:  redactHeaders,
-		bufferSize:     *bufferSize,
-		maxAttempts:    *maxAttempts,
-		initialBackoff: *initialBackoff,
-		maxBackoff:     *maxBackoff,
-		shutdownGrace:  *shutdownGrace,
-		adminAddr:      *adminAddr,
+		upstream:        upstream,
+		bindAddr:        bindAddr,
+		inspectPrefix:   prefixes,
+		contextHeaders:  mappings,
+		redactHeaders:   redactHeaders,
+		bufferSize:      *bufferSize,
+		maxAttempts:     *maxAttempts,
+		initialBackoff:  *initialBackoff,
+		maxBackoff:      *maxBackoff,
+		shutdownGrace:   *shutdownGrace,
+		adminAddr:       *adminAddr,
+		injectSessionID: *injectSessionID,
 	}, nil
-}
-
-// parseInspectPrefix splits a comma-separated prefix list, trimming
-// whitespace and dropping empty entries. Returns nil for an empty input,
-// which signals "inspect all paths" downstream.
-func parseInspectPrefix(s string) []string {
-	if s == "" {
-		return nil
-	}
-	var out []string
-	for _, p := range strings.Split(s, ",") {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
-func parseContextHeaders(raw []string) ([]spanly.HeaderMapping, error) {
-	var out []spanly.HeaderMapping
-	for _, entry := range raw {
-		parts := strings.SplitN(entry, "=", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return nil, fmt.Errorf("--context-header %q must be of form HEADER=field", entry)
-		}
-		m := spanly.HeaderMapping{Header: parts[0], Field: parts[1]}
-		if err := spanly.ValidateContextField(m.Field); err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, nil
 }
 
 func printUsage(w io.Writer) {
@@ -270,6 +222,11 @@ Flags:
   --retry-max-backoff duration    Cap on retry backoff. Default: 30s.
   --shutdown-grace duration       Time to flush telemetry on shutdown. Default: 10s.
   --admin-addr string             Admin listener (e.g. ':9090'). Default: disabled.
+  --inject-session-id             Assign a synthetic Mcp-Session-Id on initialize
+                                  responses when the upstream does not set one,
+                                  so sessionless servers still get session
+                                  grouping. Default: true. Disable with
+                                  --inject-session-id=false.
 
 Environment:
   SPANLY_API_KEY                 Required. Region detected from prefix.
@@ -318,8 +275,3 @@ func normalizeBind(s string) (string, error) {
 	}
 	return s, nil
 }
-
-type stringSliceFlag []string
-
-func (s *stringSliceFlag) String() string     { return strings.Join(*s, ",") }
-func (s *stringSliceFlag) Set(v string) error { *s = append(*s, v); return nil }

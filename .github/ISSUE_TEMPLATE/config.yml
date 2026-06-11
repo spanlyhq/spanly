@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://spanly.com/docs/
+    about: Guides and reference for the SDKs, CLI, and dashboard.
+  - name: Security vulnerability
+    url: https://github.com/spanlyhq/spanly/security
+    about: Please report vulnerabilities privately, not as public issues.

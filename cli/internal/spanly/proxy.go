@@ -3,6 +3,9 @@ package spanly
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,7 +23,59 @@ const (
 	// MonitorIDHeader is the canonical HTTP header used to override the
 	// SpanlyMonitorId on a per-request basis.
 	MonitorIDHeader = "X-Spanly-Monitor-Id"
+
+	// MaxInspectBytes bounds how much of a body the proxy buffers for
+	// JSON-RPC inspection. Larger payloads are forwarded untouched but
+	// produce no telemetry. Also used as the stdio max line size.
+	MaxInspectBytes = 16 << 20
+
+	// SessionIDHeader is the MCP session header (RFC-style canonical form).
+	SessionIDHeader = "Mcp-Session-Id"
+
+	// SyntheticSessionIDPrefix marks session IDs minted by Spanly rather
+	// than the upstream server, so the proxy can recognise (and strip)
+	// its own IDs on inbound requests without keeping state.
+	SyntheticSessionIDPrefix = "spanly-"
 )
+
+// NewSyntheticSessionID returns a fresh session ID carrying the Spanly
+// synthetic prefix.
+func NewSyntheticSessionID() string {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		panic(fmt.Sprintf("spanly: crypto/rand failed: %v", err))
+	}
+	return SyntheticSessionIDPrefix + hex.EncodeToString(buf)
+}
+
+// containsInitializeRequest reports whether a request body holds an MCP
+// initialize request (single object or anywhere in a batch).
+func containsInitializeRequest(body []byte) bool {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return false
+	}
+	type probe struct {
+		Method string `json:"method"`
+	}
+	if trimmed[0] == '[' {
+		var probes []probe
+		if err := json.Unmarshal(trimmed, &probes); err != nil {
+			return false
+		}
+		for _, p := range probes {
+			if p.Method == "initialize" {
+				return true
+			}
+		}
+		return false
+	}
+	var p probe
+	if err := json.Unmarshal(trimmed, &p); err != nil {
+		return false
+	}
+	return p.Method == "initialize"
+}
 
 // HeaderMapping maps an inbound HTTP header to a PacketContext field.
 // Used to attribute traffic per-request (e.g. X-Tenant -> environmentId)
@@ -60,14 +115,22 @@ type ProxyOptions struct {
 	InspectPrefix  []string        // empty/nil = inspect all paths
 	ContextHeaders []HeaderMapping // optional per-request overrides
 	RedactHeaders  []string        // extra headers to redact beyond the defaults
+
+	// InjectSessionID makes the proxy assign a synthetic Mcp-Session-Id on
+	// initialize responses when the upstream server does not set one, so
+	// sessionless servers still get per-session grouping in Spanly. The
+	// synthetic ID is stripped from upstream-bound requests; the upstream
+	// never sees a header it did not create.
+	InjectSessionID bool
 }
 
 type Proxy struct {
-	upstream       *url.URL
-	collector      *Collector
-	inspectPrefix  []string
-	contextHeaders []HeaderMapping
-	redactHeaders  map[string]struct{}
+	upstream        *url.URL
+	collector       *Collector
+	inspectPrefix   []string
+	contextHeaders  []HeaderMapping
+	redactHeaders   map[string]struct{}
+	injectSessionID bool
 
 	client      *http.Client
 	passthrough *httputil.ReverseProxy
@@ -113,11 +176,12 @@ func NewProxy(opts ProxyOptions) (*Proxy, error) {
 	}
 
 	p := &Proxy{
-		upstream:       opts.Upstream,
-		collector:      opts.Collector,
-		inspectPrefix:  opts.InspectPrefix,
-		contextHeaders: opts.ContextHeaders,
-		redactHeaders:  redact,
+		upstream:        opts.Upstream,
+		collector:       opts.Collector,
+		inspectPrefix:   opts.InspectPrefix,
+		contextHeaders:  opts.ContextHeaders,
+		redactHeaders:   redact,
+		injectSessionID: opts.InjectSessionID,
 		client: &http.Client{
 			Timeout:   0,
 			Transport: transport,
@@ -191,31 +255,46 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	p.inspectReqs.Add(1)
 
-	requestBody, err := io.ReadAll(r.Body)
+	requestBody, err := io.ReadAll(io.LimitReader(r.Body, MaxInspectBytes+1))
 	if err != nil {
 		http.Error(w, "failed to read request body", http.StatusBadGateway)
 		return
 	}
-	_ = r.Body.Close()
+	requestOversized := len(requestBody) > MaxInspectBytes
 
 	override := p.buildOverride(r)
 
-	transport := p.requestTransportContext(r)
-	if packet, ok := ParseMCPPacket(requestBody); ok {
-		p.collector.Collect("from-client", override, transport, packet)
+	transport := p.httpTransportContext(r, r.Header)
+	if !requestOversized {
+		if packet, ok := ParseMCPPacket(requestBody); ok {
+			p.collector.Collect("from-client", override, transport, packet)
+		}
 	}
 
 	outURL := *p.upstream
 	outURL.Path = singleJoiningPath(p.upstream.Path, r.URL.Path)
 	outURL.RawQuery = mergeQuery(p.upstream.RawQuery, r.URL.RawQuery)
 
-	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, outURL.String(), bytes.NewReader(requestBody))
+	var outBody io.Reader = bytes.NewReader(requestBody)
+	if requestOversized {
+		outBody = io.MultiReader(bytes.NewReader(requestBody), r.Body)
+	}
+	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, outURL.String(), outBody)
 	if err != nil {
 		http.Error(w, "failed to build upstream request", http.StatusBadGateway)
 		return
 	}
+	if requestOversized {
+		outReq.ContentLength = r.ContentLength
+	}
 	copyHeaders(outReq.Header, r.Header)
 	outReq.Host = p.upstream.Host
+
+	// Synthetic session IDs exist for telemetry grouping only; the
+	// upstream never issued them, so it never gets to see them.
+	if p.injectSessionID && strings.HasPrefix(outReq.Header.Get(SessionIDHeader), SyntheticSessionIDPrefix) {
+		outReq.Header.Del(SessionIDHeader)
+	}
 
 	resp, err := p.client.Do(outReq)
 	if err != nil {
@@ -228,25 +307,42 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
+	if p.injectSessionID &&
+		r.Method == http.MethodPost &&
+		!requestOversized &&
+		resp.StatusCode >= 200 && resp.StatusCode < 300 &&
+		resp.Header.Get(SessionIDHeader) == "" &&
+		containsInitializeRequest(requestBody) {
+		// Set on resp.Header (not w.Header()) so the captured response
+		// transport context below carries the ID too.
+		resp.Header.Set(SessionIDHeader, NewSyntheticSessionID())
+	}
+
 	copyHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 
-	respTransport := p.responseTransportContext(r, resp)
+	respTransport := p.httpTransportContext(r, resp.Header)
 
 	if isSSE(resp.Header.Get("Content-Type")) {
 		p.streamSSE(w, resp.Body, override, respTransport)
 		return
 	}
 
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, MaxInspectBytes+1))
 	if err != nil {
 		log.Printf("spanly: failed to read upstream response: %v", err)
 		return
 	}
-	if packet, ok := ParseMCPPacket(responseBody); ok {
-		p.collector.Collect("to-client", override, respTransport, packet)
+	if len(responseBody) <= MaxInspectBytes {
+		if packet, ok := ParseMCPPacket(responseBody); ok {
+			p.collector.Collect("to-client", override, respTransport, packet)
+		}
 	}
 	if _, err := w.Write(responseBody); err != nil {
+		log.Printf("spanly: failed to write response to client: %v", err)
+		return
+	}
+	if _, err := io.Copy(w, resp.Body); err != nil {
 		log.Printf("spanly: failed to write response to client: %v", err)
 	}
 }
@@ -255,6 +351,7 @@ func (p *Proxy) streamSSE(w http.ResponseWriter, body io.Reader, override Packet
 	flusher, _ := w.(http.Flusher)
 	buf := make([]byte, 8*1024)
 	var frame bytes.Buffer
+	inspect := true
 	for {
 		n, err := body.Read(buf)
 		if n > 0 {
@@ -266,8 +363,15 @@ func (p *Proxy) streamSSE(w http.ResponseWriter, body io.Reader, override Packet
 			if flusher != nil {
 				flusher.Flush()
 			}
-			frame.Write(chunk)
-			p.drainFrames(&frame, override, transport)
+			if inspect {
+				frame.Write(chunk)
+				p.drainFrames(&frame, override, transport)
+				if frame.Len() > MaxInspectBytes {
+					log.Printf("spanly: SSE frame exceeds %d bytes, disabling inspection for this stream", MaxInspectBytes)
+					frame.Reset()
+					inspect = false
+				}
+			}
 		}
 		if err != nil {
 			if err != io.EOF && !isClosedErr(err) {
@@ -300,21 +404,14 @@ func (p *Proxy) drainFrames(buf *bytes.Buffer, override PacketContext, transport
 	}
 }
 
-func (p *Proxy) requestTransportContext(r *http.Request) TransportContext {
+// httpTransportContext describes one direction of an exchange; headers
+// is r.Header for the request leg, resp.Header for the response leg.
+func (p *Proxy) httpTransportContext(r *http.Request, headers http.Header) TransportContext {
 	return TransportContext{
 		Type:       "http",
 		HTTPMethod: normalizeHTTPMethod(r.Method),
 		Path:       r.URL.RequestURI(),
-		Headers:    flattenHeaders(r.Header, p.redactHeaders),
-	}
-}
-
-func (p *Proxy) responseTransportContext(r *http.Request, resp *http.Response) TransportContext {
-	return TransportContext{
-		Type:       "http",
-		HTTPMethod: normalizeHTTPMethod(r.Method),
-		Path:       r.URL.RequestURI(),
-		Headers:    flattenHeaders(resp.Header, p.redactHeaders),
+		Headers:    flattenHeaders(headers, p.redactHeaders),
 	}
 }
 
@@ -401,12 +498,9 @@ func mergeQuery(a, b string) string {
 }
 
 func isCanceled(ctx context.Context, err error) bool {
-	if ctx.Err() != nil {
-		return true
-	}
-	return strings.Contains(err.Error(), "context canceled")
+	return ctx.Err() != nil || errors.Is(err, context.Canceled)
 }
 
 func isClosedErr(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "use of closed network connection")
+	return errors.Is(err, net.ErrClosed)
 }

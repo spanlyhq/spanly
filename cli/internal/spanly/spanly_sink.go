@@ -30,10 +30,6 @@ var (
 	errNoSinks       = errors.New("at least one Sink is required")
 )
 
-func joinSinkErrors(errs []error) error {
-	return errors.Join(errs...)
-}
-
 // SpanlySinkOptions configures the Spanly HTTP sink.
 //
 // APIKey is required and drives region detection (us / eu) when

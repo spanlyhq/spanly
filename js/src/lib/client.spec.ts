@@ -2,6 +2,9 @@ import { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
 import {
   DEFAULT_REDACTED_HEADERS,
+  MonitorOptions,
+  SpanlyClient,
+  SYNTHETIC_SESSION_ID_PREFIX,
   requestToTransportContext,
   responseToTransportContext,
 } from './client.js';
@@ -78,5 +81,144 @@ describe('responseToTransportContext', () => {
       'set-cookie': '[REDACTED]',
       'content-type': 'text/event-stream',
     });
+  });
+});
+
+describe('session ID injection', () => {
+  const initializeBody = {
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {},
+  };
+  const toolsCallBody = {
+    jsonrpc: '2.0',
+    id: 2,
+    method: 'tools/call',
+    params: {},
+  };
+
+  beforeEach(() => {
+    jest
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () =>
+        new Response(JSON.stringify({ success: true }), { status: 200 })
+      );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  interface MonitoredTransport {
+    handleRequest(
+      req: IncomingMessage,
+      res: ServerResponse,
+      parsedBody?: unknown
+    ): Promise<void>;
+  }
+
+  async function monitoredTransport(
+    serverBehavior: (res: ServerResponse) => void,
+    options?: MonitorOptions
+  ): Promise<MonitoredTransport> {
+    const transport: MonitoredTransport = {
+      handleRequest: async (req, res) => {
+        await new Promise((resolve) => setImmediate(resolve));
+        serverBehavior(res);
+      },
+    };
+    const connected: unknown[] = [];
+    const mcpServer = {
+      connect: async (t: unknown) => {
+        connected.push(t);
+      },
+    };
+    const client = new SpanlyClient({ apiKey: 'spanly_us_test' });
+    client.monitor(mcpServer, options);
+    await mcpServer.connect(transport);
+    return transport;
+  }
+
+  function jsonResponse(res: ServerResponse) {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }));
+  }
+
+  it('injects a synthetic session ID on initialize responses', async () => {
+    const transport = await monitoredTransport(jsonResponse);
+    const req = makeRequest({ 'content-type': 'application/json' });
+    const res = new ServerResponse(req);
+
+    await transport.handleRequest(req, res, initializeBody);
+
+    expect(String(res.getHeader('mcp-session-id'))).toMatch(
+      new RegExp(`^${SYNTHETIC_SESSION_ID_PREFIX}`)
+    );
+  });
+
+  it('detects initialize requests arriving as stream chunks', async () => {
+    const transport = await monitoredTransport(jsonResponse);
+    const req = makeRequest({ 'content-type': 'application/json' });
+    const res = new ServerResponse(req);
+
+    const pending = transport.handleRequest(req, res);
+    req.emit('data', Buffer.from(JSON.stringify(initializeBody)));
+    await pending;
+
+    expect(String(res.getHeader('mcp-session-id'))).toMatch(
+      new RegExp(`^${SYNTHETIC_SESSION_ID_PREFIX}`)
+    );
+  });
+
+  it('does not inject when the server assigns its own session ID', async () => {
+    const transport = await monitoredTransport((res) => {
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'mcp-session-id': 'server-session',
+      });
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }));
+    });
+    const req = makeRequest({ 'content-type': 'application/json' });
+    const res = new ServerResponse(req);
+
+    await transport.handleRequest(req, res, initializeBody);
+
+    expect(res.getHeader('mcp-session-id')).toBeUndefined();
+  });
+
+  it('does not inject on non-initialize requests', async () => {
+    const transport = await monitoredTransport(jsonResponse);
+    const req = makeRequest({ 'content-type': 'application/json' });
+    const res = new ServerResponse(req);
+
+    await transport.handleRequest(req, res, toolsCallBody);
+
+    expect(res.getHeader('mcp-session-id')).toBeUndefined();
+  });
+
+  it('does not inject on error responses', async () => {
+    const transport = await monitoredTransport((res) => {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, error: {} }));
+    });
+    const req = makeRequest({ 'content-type': 'application/json' });
+    const res = new ServerResponse(req);
+
+    await transport.handleRequest(req, res, initializeBody);
+
+    expect(res.getHeader('mcp-session-id')).toBeUndefined();
+  });
+
+  it('does not inject when disabled via options', async () => {
+    const transport = await monitoredTransport(jsonResponse, {
+      injectSessionId: false,
+    });
+    const req = makeRequest({ 'content-type': 'application/json' });
+    const res = new ServerResponse(req);
+
+    await transport.handleRequest(req, res, initializeBody);
+
+    expect(res.getHeader('mcp-session-id')).toBeUndefined();
   });
 });

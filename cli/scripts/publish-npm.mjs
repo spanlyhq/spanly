@@ -117,6 +117,12 @@ function buildWrapperPackage(platformPackages) {
   copyFileSync(path.join(__dirname, 'launcher.js'), path.join(binDir, `${BIN_NAME}.js`));
   chmodSync(path.join(binDir, `${BIN_NAME}.js`), 0o755);
 
+  // The CLI README doubles as the npm page for the wrapper package. LICENSE
+  // sits at the public repo root (one level above cli/); absent in other layouts.
+  copyFileSync(path.join(CLI_DIR, 'README.md'), path.join(pkgDir, 'README.md'));
+  const license = path.join(CLI_DIR, '..', 'LICENSE');
+  if (existsSync(license)) copyFileSync(license, path.join(pkgDir, 'LICENSE'));
+
   const optionalDependencies = Object.fromEntries(
     platformPackages.map((p) => [p.name, VERSION]),
   );
@@ -127,9 +133,11 @@ function buildWrapperPackage(platformPackages) {
       {
         name: WRAPPER_NAME,
         version: VERSION,
-        description: 'Spanly CLI — observability for MCP servers (run + proxy modes)',
+        description: 'Spanly CLI: observability for MCP servers (run + proxy modes)',
+        keywords: ['mcp', 'model-context-protocol', 'observability', 'monitoring', 'telemetry', 'cli', 'spanly'],
         repository: REPOSITORY,
         homepage: HOMEPAGE,
+        bugs: `${REPOSITORY}/issues`,
         license: 'Apache-2.0',
         bin: { [BIN_NAME]: `bin/${BIN_NAME}.js` },
         optionalDependencies,

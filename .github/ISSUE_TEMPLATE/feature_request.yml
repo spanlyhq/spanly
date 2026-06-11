@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an improvement to the SDKs or CLI.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the use case rather than only the solution. What are you monitoring, and what is missing or awkward today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: If you have a specific API, flag, or behavior in mind, sketch it here.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

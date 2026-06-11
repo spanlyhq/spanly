@@ -16,8 +16,7 @@ import (
 // listener for operational observability of the spanly process itself.
 //
 // /healthz   200 if the admin listener is up.
-// /readyz    200 if the upstream is reachable via a short TCP dial.
-//            Cached for ~1s to avoid hammering upstream.
+// /readyz    200 if the upstream accepts a TCP dial (cached for ~1s).
 // /metrics   Prometheus text format. Combines Collector + Proxy counters.
 type AdminServer struct {
 	addr      string
@@ -42,7 +41,7 @@ func NewAdminServer(addr string, upstream *url.URL, collector *Collector, proxy 
 }
 
 // Start launches the admin HTTP listener in a goroutine. errCh receives
-// the eventual error (or nil on graceful shutdown).
+// a listener failure; nothing is sent on graceful shutdown.
 func (a *AdminServer) Start(ctx context.Context, errCh chan<- error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", a.handleHealthz)
@@ -64,10 +63,9 @@ func (a *AdminServer) Start(ctx context.Context, errCh chan<- error) {
 
 	go func() {
 		err := srv.ListenAndServe()
-		if errors.Is(err, http.ErrServerClosed) {
-			err = nil
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
 		}
-		errCh <- err
 	}()
 }
 

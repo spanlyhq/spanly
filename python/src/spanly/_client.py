@@ -13,6 +13,7 @@ import anyio
 
 from spanly._packet import McpServerInfo, SpanlyPacketContext
 from spanly._sender import AsyncSender
+from spanly._session import patch_streamable_http_app
 from spanly._transport import InterceptedReceiveStream, InterceptedSendStream
 
 logger = logging.getLogger("spanly")
@@ -47,6 +48,10 @@ class MonitorOptions:
     # Additional header names to redact from captured transport context,
     # on top of DEFAULT_REDACTED_HEADERS. Case-insensitive.
     redact_headers: list[str] | None = None
+    # When the server runs sessionless (stateless Streamable HTTP), set a
+    # synthetic Mcp-Session-Id header on initialize responses so requests
+    # from the same client are grouped into a session in Spanly.
+    inject_session_id: bool = True
 
 
 def _resolve_low_level_server(server: Any) -> Any:
@@ -110,6 +115,9 @@ class SpanlyClient:
         original_run = low_level_server.run
         client = self
         opts = options
+
+        if options is None or options.inject_session_id:
+            patch_streamable_http_app(server)
 
         async def patched_run(
             read_stream: Any,

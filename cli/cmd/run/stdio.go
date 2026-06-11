@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"slices"
-	"sync"
 	"syscall"
 	"time"
 
@@ -38,20 +37,19 @@ func runStdio(ctx context.Context, cfg *config, collector *spanly.Collector) (in
 
 	transport := spanly.TransportContext{Type: "stdio"}
 
-	var wg sync.WaitGroup
-
-	// parent stdin -> child stdin
-	wg.Add(1)
+	// parent stdin -> child stdin. Not waited on: a read on os.Stdin
+	// cannot be interrupted, and once the child exits there is nothing
+	// left to forward — waiting would hang the wrapper until the MCP
+	// client closes its end.
 	go func() {
-		defer wg.Done()
 		defer childStdin.Close()
 		forwardJSONRPC(os.Stdin, childStdin, "from-client", collector, transport)
 	}()
 
 	// child stdout -> parent stdout
-	wg.Add(1)
+	stdoutDone := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(stdoutDone)
 		forwardJSONRPC(childStdout, os.Stdout, "to-client", collector, transport)
 	}()
 
@@ -78,7 +76,7 @@ func runStdio(ctx context.Context, cfg *config, collector *spanly.Collector) (in
 
 	exitErr := cmd.Wait()
 	close(done)
-	wg.Wait()
+	<-stdoutDone
 
 	if exitErr == nil {
 		return 0, nil
@@ -98,8 +96,7 @@ func runStdio(ctx context.Context, cfg *config, collector *spanly.Collector) (in
 // asynchronously.
 func forwardJSONRPC(in io.Reader, out io.Writer, direction string, collector *spanly.Collector, transport spanly.TransportContext) {
 	scanner := bufio.NewScanner(in)
-	// 16 MiB max line — well above any reasonable MCP tool output size.
-	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), spanly.MaxInspectBytes)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if packet, ok := spanly.ParseMCPPacket(line); ok {

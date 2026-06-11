@@ -82,6 +82,18 @@ SpanlyClient().monitor(server, MonitorOptions(
 ))
 ```
 
+### Session grouping for stateless servers
+
+If your server runs sessionless (`stateless_http=True` on FastMCP), the
+SDK wraps the app returned by `streamable_http_app()` to assign a
+synthetic `Mcp-Session-Id` (prefixed `spanly-`) on initialize responses,
+so Spanly can still group requests into sessions. Servers that assign
+their own session IDs are untouched. Opt out with:
+
+```python
+SpanlyClient().monitor(server, MonitorOptions(inject_session_id=False))
+```
+
 ### Trace context propagation
 
 The SDK preserves the W3C `traceparent` value verbatim on every captured

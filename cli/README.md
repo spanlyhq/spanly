@@ -97,6 +97,7 @@ spanly run [flags] -- <command> [args...]
 | `--inspect-prefix` | `/mcp,/sse` | Comma-separated path prefixes to inspect (HTTP mode). Empty = inspect all. |
 | `--context-header` | _none_ | `HEADER=field` mapping. Repeatable. Fields: `environmentId`, `projectId`, `organisationId`. |
 | `--redact-header` | _none_ | Additional header to redact from captured telemetry (HTTP mode). Repeatable. `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization` and `X-Api-Key` are always redacted. |
+| `--inject-session-id` | `true` | Assign a synthetic `Mcp-Session-Id` on initialize responses when the upstream does not set one, so sessionless servers still get session grouping (HTTP mode). The synthetic ID is stripped before requests are forwarded upstream. Disable with `--inject-session-id=false`. |
 | `--buffer-size` | `10000` | Max packets buffered when ingest is unreachable. |
 | `--retry-max-attempts` | `3` | Max POST attempts per packet. |
 | `--retry-backoff` | `1s` | Initial retry backoff (exponential). |
@@ -168,6 +169,8 @@ For every JSON-RPC packet on inspected paths:
   response keep their original headers.
 - A timestamp and the per-process `spanlyClientId`/`spanlyMonitorId`.
 
+Bodies larger than 16 MiB are forwarded verbatim without telemetry.
+
 SSE (`text/event-stream`) responses are streamed to the client verbatim; each
 `data:` frame is parsed and emitted as a separate telemetry packet.
 
@@ -223,12 +226,6 @@ go build -o dist/spanly .
 go test ./...
 go vet ./...
 ```
-
-## Migrating from the old `spanly <upstream> [bind]` syntax
-
-Every command needs a subcommand now: the old `spanly <upstream> [bind]`
-form is `spanly proxy <upstream> <bind>`, and wrapping a child process
-is `spanly run -- <cmd>`.
 
 ## What's not (yet) supported
 

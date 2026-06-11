@@ -1,0 +1,42 @@
+name: Bug report
+description: Something in the SDKs or CLI does not work as documented.
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: artifact
+    attributes:
+      label: Artifact
+      description: Which part of this repository is affected?
+      options:
+        - "@spanly/sdk (TypeScript SDK, js/)"
+        - "spanly (Python SDK, python/)"
+        - "CLI (cli/)"
+        - "Helm chart / Kustomize"
+        - "Other / not sure"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Package or CLI version (`spanly --version`, `npm ls @spanly/sdk`, `pip show spanly`).
+      placeholder: "0.1.1"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead? Include logs or error output if you have them.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Minimal steps or code to reproduce. MCP transport (stdio / HTTP / SSE) and client (Claude Desktop, Cursor, custom) are often relevant.
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "macOS 15 / Node 22 / Python 3.12 / Docker"

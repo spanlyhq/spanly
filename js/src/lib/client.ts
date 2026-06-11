@@ -259,6 +259,50 @@ export interface MonitorOptions {
    * on top of DEFAULT_REDACTED_HEADERS. Case-insensitive.
    */
   redactHeaders?: string[];
+  /**
+   * When the server does not assign an MCP session ID (stateless
+   * Streamable HTTP transports), set a synthetic `Mcp-Session-Id` header
+   * on initialize responses so subsequent requests from the same client
+   * are grouped into a session in Spanly. Defaults to true.
+   */
+  injectSessionId?: boolean;
+}
+
+export const SYNTHETIC_SESSION_ID_PREFIX = 'spanly-';
+
+const SESSION_ID_HEADER = 'mcp-session-id';
+
+function newSyntheticSessionId(): string {
+  return `${SYNTHETIC_SESSION_ID_PREFIX}${crypto.randomUUID()}`;
+}
+
+function containsInitializeRequest(body: unknown): boolean {
+  try {
+    const obj = bodyToObject(body);
+    const items = Array.isArray(obj) ? obj : [obj];
+    return items.some(
+      (item) =>
+        item !== null &&
+        typeof item === 'object' &&
+        (item as { method?: unknown }).method === 'initialize'
+    );
+  } catch {
+    return false;
+  }
+}
+
+function headersArgContainsSessionId(arg: unknown): boolean {
+  if (Array.isArray(arg)) {
+    return arg.some(
+      (v) => typeof v === 'string' && v.toLowerCase() === SESSION_ID_HEADER
+    );
+  }
+  if (arg !== null && typeof arg === 'object') {
+    return Object.keys(arg).some(
+      (key) => key.toLowerCase() === SESSION_ID_HEADER
+    );
+  }
+  return false;
 }
 
 function getServerInfo(mcpServer: MinimalMcpServer) {
@@ -428,6 +472,7 @@ export class SpanlyClient {
         });
       } else if (isStreamableHTTPServerTransport(transport)) {
         const redactedHeaders = buildRedactedHeaderSet(options?.redactHeaders);
+        const injectSessionId = options?.injectSessionId ?? true;
         const originalHandleRequest = transport.handleRequest.bind(transport);
 
         transport.handleRequest = async (
@@ -442,6 +487,25 @@ export class SpanlyClient {
             spanlyMonitorId: crypto.randomUUID(),
           };
 
+          let sawInitialize =
+            parsedBody !== undefined && containsInitializeRequest(parsedBody);
+
+          // Must run before headers flush and before the to-client collect,
+          // so both the client and the captured response carry the ID.
+          const maybeInjectSessionId = (statusCode: number) => {
+            if (
+              !injectSessionId ||
+              !sawInitialize ||
+              res.headersSent ||
+              statusCode < 200 ||
+              statusCode >= 300 ||
+              res.getHeader(SESSION_ID_HEADER) !== undefined
+            ) {
+              return;
+            }
+            res.setHeader(SESSION_ID_HEADER, newSyntheticSessionId());
+          };
+
           if (parsedBody !== undefined) {
             collect(
               'from-client',
@@ -452,6 +516,7 @@ export class SpanlyClient {
           }
 
           req.on('data', (chunk) => {
+            sawInitialize = sawInitialize || containsInitializeRequest(chunk);
             collect(
               'from-client',
               requestToTransportContext(req, redactedHeaders),
@@ -460,9 +525,26 @@ export class SpanlyClient {
             );
           });
 
+          const originalWriteHead = res.writeHead;
+
+          res.writeHead = ((...args: Parameters<typeof originalWriteHead>) => {
+            const [statusCode, second] = args;
+            // writeHead(status, statusMessage?, headers?): headers may sit
+            // at index 1 or 2 depending on the overload used.
+            const headersArg =
+              typeof second === 'string'
+                ? (args as readonly unknown[])[2]
+                : second;
+            if (!headersArgContainsSessionId(headersArg)) {
+              maybeInjectSessionId(statusCode);
+            }
+            return originalWriteHead.apply(res, args);
+          }) as typeof originalWriteHead;
+
           const originalWrite = res.write;
 
           res.write = ((...args: Parameters<typeof originalWrite>) => {
+            maybeInjectSessionId(res.statusCode);
             collect(
               'to-client',
               responseToTransportContext(res, req, redactedHeaders),
@@ -475,6 +557,7 @@ export class SpanlyClient {
           const originalEnd = res.end;
 
           res.end = ((...args: Parameters<typeof originalEnd>) => {
+            maybeInjectSessionId(res.statusCode);
             collect(
               'to-client',
               responseToTransportContext(res, req, redactedHeaders),

@@ -1,7 +1,6 @@
 package spanly
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -74,7 +73,8 @@ func newProxyFor(t *testing.T, upstream, ingest string, opts ...func(*ProxyOptio
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.Start(context.Background())
+	c.Start()
+	t.Cleanup(func() { _ = c.Close(time.Second) })
 	po := ProxyOptions{Upstream: u, Collector: c}
 	for _, o := range opts {
 		o(&po)
@@ -455,6 +455,46 @@ func TestProxyIgnoresNonJSONRPCBody(t *testing.T) {
 	}
 }
 
+func TestProxyForwardsOversizedBodyWithoutTelemetry(t *testing.T) {
+	var upstreamGot atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n, _ := io.Copy(io.Discard, r.Body)
+		upstreamGot.Store(n)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	ingest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer ingest.Close()
+
+	p, c := newProxyFor(t, upstream.URL, ingest.URL)
+	front := httptest.NewServer(p)
+	defer front.Close()
+
+	// A valid JSON-RPC body padded past the inspection cap: it must reach
+	// the upstream complete but never be buffered into telemetry.
+	body := `{"jsonrpc":"2.0","method":"x","params":{"pad":"` +
+		strings.Repeat("a", MaxInspectBytes) + `"}}`
+
+	resp, err := http.Post(front.URL+"/mcp", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := upstreamGot.Load(); got != int64(len(body)) {
+		t.Errorf("upstream received %d bytes, want %d", got, len(body))
+	}
+	if got := c.Metrics().Collected; got != 0 {
+		t.Errorf("collected %d packets, want 0 for oversized body", got)
+	}
+}
+
 func TestNewProxyValidatesContextField(t *testing.T) {
 	u, _ := url.Parse("http://localhost")
 	sink, _ := NewSpanlySink(SpanlySinkOptions{APIKey: "spanly_us_x", IngestURL: "http://x"})
@@ -527,6 +567,215 @@ func TestIsSSE(t *testing.T) {
 	for in, want := range cases {
 		if got := isSSE(in); got != want {
 			t.Errorf("isSSE(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
+func TestProxyInjectsSyntheticSessionIDOnInitialize(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26"}}`))
+	}))
+	defer upstream.Close()
+
+	ingest := newFakeIngest(t, 2)
+	defer ingest.srv.Close()
+
+	proxy, _ := newProxyFor(t, upstream.URL, ingest.srv.URL, func(o *ProxyOptions) {
+		o.InjectSessionID = true
+	})
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	reqBody := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`
+	resp, err := http.Post(proxyServer.URL+"/mcp", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	sessionID := resp.Header.Get(SessionIDHeader)
+	if !strings.HasPrefix(sessionID, SyntheticSessionIDPrefix) {
+		t.Fatalf("Mcp-Session-Id = %q, want synthetic ID with prefix %q", sessionID, SyntheticSessionIDPrefix)
+	}
+
+	packets := ingest.waitFor(t, 2*time.Second)
+	for i := range packets {
+		if packets[i].Direction != "to-client" {
+			continue
+		}
+		if got := packets[i].TransportContext.Headers["mcp-session-id"]; got != sessionID {
+			t.Errorf("to-client mcp-session-id = %q, want %q", got, sessionID)
+		}
+	}
+}
+
+func TestProxyDoesNotInjectWhenUpstreamSetsSessionID(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(SessionIDHeader, "upstream-session")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+	}))
+	defer upstream.Close()
+
+	ingest := newFakeIngest(t, 2)
+	defer ingest.srv.Close()
+
+	proxy, _ := newProxyFor(t, upstream.URL, ingest.srv.URL, func(o *ProxyOptions) {
+		o.InjectSessionID = true
+	})
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	reqBody := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`
+	resp, err := http.Post(proxyServer.URL+"/mcp", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got := resp.Header.Get(SessionIDHeader); got != "upstream-session" {
+		t.Errorf("Mcp-Session-Id = %q, want upstream value preserved", got)
+	}
+	ingest.waitFor(t, 2*time.Second)
+}
+
+func TestProxyDoesNotInjectOnNonInitialize(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{}}`))
+	}))
+	defer upstream.Close()
+
+	ingest := newFakeIngest(t, 2)
+	defer ingest.srv.Close()
+
+	proxy, _ := newProxyFor(t, upstream.URL, ingest.srv.URL, func(o *ProxyOptions) {
+		o.InjectSessionID = true
+	})
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	reqBody := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{}}`
+	resp, err := http.Post(proxyServer.URL+"/mcp", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got := resp.Header.Get(SessionIDHeader); got != "" {
+		t.Errorf("Mcp-Session-Id = %q, want empty", got)
+	}
+	ingest.waitFor(t, 2*time.Second)
+}
+
+func TestProxyDoesNotInjectWhenDisabled(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+	}))
+	defer upstream.Close()
+
+	ingest := newFakeIngest(t, 2)
+	defer ingest.srv.Close()
+
+	proxy, _ := newProxyFor(t, upstream.URL, ingest.srv.URL)
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	reqBody := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`
+	resp, err := http.Post(proxyServer.URL+"/mcp", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got := resp.Header.Get(SessionIDHeader); got != "" {
+		t.Errorf("Mcp-Session-Id = %q, want empty when injection disabled", got)
+	}
+	ingest.waitFor(t, 2*time.Second)
+}
+
+func TestProxyStripsSyntheticSessionIDFromUpstreamRequests(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get(SessionIDHeader); got != "" {
+			t.Errorf("upstream saw Mcp-Session-Id = %q, want stripped", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{}}`))
+	}))
+	defer upstream.Close()
+
+	ingest := newFakeIngest(t, 2)
+	defer ingest.srv.Close()
+
+	proxy, _ := newProxyFor(t, upstream.URL, ingest.srv.URL, func(o *ProxyOptions) {
+		o.InjectSessionID = true
+	})
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, proxyServer.URL+"/mcp",
+		strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"tools/call"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(SessionIDHeader, NewSyntheticSessionID())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	packets := ingest.waitFor(t, 2*time.Second)
+	for i := range packets {
+		if packets[i].Direction != "from-client" {
+			continue
+		}
+		if got := packets[i].TransportContext.Headers["mcp-session-id"]; !strings.HasPrefix(got, SyntheticSessionIDPrefix) {
+			t.Errorf("from-client mcp-session-id = %q, want synthetic ID kept in telemetry", got)
+		}
+	}
+}
+
+func TestProxyForwardsRealSessionIDToUpstream(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get(SessionIDHeader); got != "real-session" {
+			t.Errorf("upstream Mcp-Session-Id = %q, want forwarded", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{}}`))
+	}))
+	defer upstream.Close()
+
+	ingest := newFakeIngest(t, 2)
+	defer ingest.srv.Close()
+
+	proxy, _ := newProxyFor(t, upstream.URL, ingest.srv.URL, func(o *ProxyOptions) {
+		o.InjectSessionID = true
+	})
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, proxyServer.URL+"/mcp",
+		strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"tools/call"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(SessionIDHeader, "real-session")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	ingest.waitFor(t, 2*time.Second)
+}
+
+func TestContainsInitializeRequest(t *testing.T) {
+	cases := map[string]bool{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`: true,
+		`[{"method":"tools/call"},{"method":"initialize"}]`:          true,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call"}`:             false,
+		`{"jsonrpc":"2.0","method":"notifications/initialized"}`:     false,
+		`not json`: false,
+		``:         false,
+	}
+	for in, want := range cases {
+		if got := containsInitializeRequest([]byte(in)); got != want {
+			t.Errorf("containsInitializeRequest(%q) = %v, want %v", in, got, want)
 		}
 	}
 }

@@ -4,8 +4,8 @@
 //
 // Two modes:
 //
-//   spanly run -- node server.js               # stdio (default)
-//   spanly run --port 3000 -- node server.js   # http (--port set)
+//	spanly run -- node server.js               # stdio (default)
+//	spanly run --port 3000 -- node server.js   # http (--port set)
 //
 // In stdio mode the wrapper inherits its parent's stdin/stdout and pipes
 // them through interception readers that parse line-delimited JSON-RPC
@@ -23,34 +23,30 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/spanlyhq/spanly/cli/internal/spanly"
 )
-
-const defaultInspectPrefix = "/mcp,/sse"
 
 type config struct {
 	args     []string // command + args, post `--`
 	httpPort int      // 0 = stdio mode
 
-	childPort         int
-	childPortEnv      string
+	childPort           int
+	childPortEnv        string
 	childStartupTimeout time.Duration
 
-	inspectPrefix  []string
-	contextHeaders []spanly.HeaderMapping
-	redactHeaders  []string
-	bufferSize     int
-	maxAttempts    int
-	initialBackoff time.Duration
-	maxBackoff     time.Duration
-	shutdownGrace  time.Duration
-	adminAddr      string
+	inspectPrefix   []string
+	contextHeaders  []spanly.HeaderMapping
+	redactHeaders   []string
+	injectSessionID bool
+	bufferSize      int
+	maxAttempts     int
+	initialBackoff  time.Duration
+	maxBackoff      time.Duration
+	shutdownGrace   time.Duration
+	adminAddr       string
 }
 
 // Main runs the `spanly run` subcommand.
@@ -65,14 +61,8 @@ func Main(args []string, version string) (err error) {
 		return err
 	}
 
-	apiKey := os.Getenv("SPANLY_API_KEY")
-	if apiKey == "" {
-		return errors.New("SPANLY_API_KEY environment variable is required")
-	}
-
-	spanlySink, err := spanly.NewSpanlySink(spanly.SpanlySinkOptions{
-		APIKey:         apiKey,
-		IngestURL:      os.Getenv("SPANLY_INGEST_URL"),
+	collector, sink, err := spanly.NewPipelineFromEnv(spanly.PipelineOptions{
+		BufferSize:     cfg.bufferSize,
 		MaxAttempts:    cfg.maxAttempts,
 		InitialBackoff: cfg.initialBackoff,
 		MaxBackoff:     cfg.maxBackoff,
@@ -81,23 +71,14 @@ func Main(args []string, version string) (err error) {
 		return err
 	}
 
-	collector, err := spanly.NewCollector(spanly.CollectorOptions{
-		ClientID:   uuid.NewString(),
-		MonitorID:  uuid.NewString(),
-		BufferSize: cfg.bufferSize,
-	}, spanlySink)
-	if err != nil {
-		return err
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
-	collector.Start(ctx)
+	collector.Start()
+	defer collector.Close(cfg.shutdownGrace)
 
-	logf := func(format string, a ...any) { log.Printf(format, a...) }
-	logf("spanly run: command=%v mode=%s version=%s ingest=%s",
-		cfg.args, modeName(cfg.httpPort), version, spanlySink.IngestURL())
+	log.Printf("spanly run: command=%v mode=%s version=%s ingest=%s",
+		cfg.args, modeName(cfg.httpPort), version, sink.IngestURL())
 
 	var exitCode int
 	if cfg.httpPort == 0 {
@@ -106,18 +87,10 @@ func Main(args []string, version string) (err error) {
 		exitCode, err = runHTTP(ctx, cfg, collector, version)
 	}
 
-	collector.Drain(cfg.shutdownGrace)
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.shutdownGrace)
-	_ = collector.Shutdown(shutdownCtx)
-	cancel()
-
 	if err != nil {
 		return err
 	}
 	if exitCode != 0 {
-		// Non-zero child exit propagated to wrapper exit code via os.Exit
-		// Implemented in main via the err path is awkward; instead we use
-		// the sentinel error type below so main can map it to exit code.
 		return &exitCodeError{code: exitCode}
 	}
 	return nil
@@ -159,7 +132,7 @@ func parseArgs(args []string) (*config, error) {
 	childStartupTimeout := fs.Duration("child-startup-timeout", 30*time.Second,
 		"Max time to wait for the child to start listening before erroring out.")
 
-	inspectPrefix := fs.String("inspect-prefix", defaultInspectPrefix,
+	inspectPrefix := fs.String("inspect-prefix", spanly.DefaultInspectPrefix,
 		`Comma-separated path prefixes to inspect for JSON-RPC (HTTP mode). Empty = inspect all.`)
 	bufferSize := fs.Int("buffer-size", 10000, "Max packets buffered when ingest is unreachable.")
 	maxAttempts := fs.Int("retry-max-attempts", 3, "Max POST attempts per packet.")
@@ -169,12 +142,14 @@ func parseArgs(args []string) (*config, error) {
 		"Time to flush in-flight telemetry on graceful shutdown.")
 	adminAddr := fs.String("admin-addr", "",
 		"Admin listener for /healthz, /readyz, /metrics. Empty = disabled.")
+	injectSessionID := fs.Bool("inject-session-id", true,
+		"Assign a synthetic Mcp-Session-Id on initialize responses when the child does not set one (HTTP mode only).")
 
-	var contextHeaders stringSliceFlag
+	var contextHeaders spanly.StringSliceFlag
 	fs.Var(&contextHeaders, "context-header",
 		`Map an HTTP header to a PacketContext field, e.g. 'X-Tenant=environmentId'. HTTP mode only. Repeatable.`)
 
-	var redactHeaders stringSliceFlag
+	var redactHeaders spanly.StringSliceFlag
 	fs.Var(&redactHeaders, "redact-header",
 		`Additional HTTP header to redact from captured telemetry, e.g. 'X-Custom-Token'. HTTP mode only. Repeatable. Authorization, Cookie, Set-Cookie, Proxy-Authorization and X-Api-Key are always redacted.`)
 
@@ -186,8 +161,8 @@ func parseArgs(args []string) (*config, error) {
 		return nil, errors.New("missing child command (use '--' to separate flags from the command)")
 	}
 
-	prefixes := parseInspectPrefix(*inspectPrefix)
-	mappings, err := parseContextHeaders(contextHeaders)
+	prefixes := spanly.ParseInspectPrefix(*inspectPrefix)
+	mappings, err := spanly.ParseContextHeaders(contextHeaders)
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +176,7 @@ func parseArgs(args []string) (*config, error) {
 		inspectPrefix:       prefixes,
 		contextHeaders:      mappings,
 		redactHeaders:       redactHeaders,
+		injectSessionID:     *injectSessionID,
 		bufferSize:          *bufferSize,
 		maxAttempts:         *maxAttempts,
 		initialBackoff:      *initialBackoff,
@@ -208,36 +184,6 @@ func parseArgs(args []string) (*config, error) {
 		shutdownGrace:       *shutdownGrace,
 		adminAddr:           *adminAddr,
 	}, nil
-}
-
-func parseInspectPrefix(s string) []string {
-	if s == "" {
-		return nil
-	}
-	var out []string
-	for _, p := range strings.Split(s, ",") {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
-func parseContextHeaders(raw []string) ([]spanly.HeaderMapping, error) {
-	var out []spanly.HeaderMapping
-	for _, entry := range raw {
-		parts := strings.SplitN(entry, "=", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return nil, fmt.Errorf("--context-header %q must be of form HEADER=field", entry)
-		}
-		m := spanly.HeaderMapping{Header: parts[0], Field: parts[1]}
-		if err := spanly.ValidateContextField(m.Field); err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, nil
 }
 
 func printUsage(w io.Writer) {
@@ -270,6 +216,11 @@ Flags:
                                Authorization, Cookie, Set-Cookie,
                                Proxy-Authorization and X-Api-Key are always
                                redacted.
+  --inject-session-id          Assign a synthetic Mcp-Session-Id on initialize
+                               responses when the child does not set one, so
+                               sessionless servers still get session grouping.
+                               (HTTP mode only.) Default: true. Disable with
+                               --inject-session-id=false.
 
   --buffer-size int            Default: 10000.
   --retry-max-attempts int     Default: 3.
@@ -287,8 +238,3 @@ Examples:
   spanly run --port 3000 -- python -m my_mcp
   spanly run --port 3000 --admin-addr=:9090 -- ./my-mcp-server`)
 }
-
-type stringSliceFlag []string
-
-func (s *stringSliceFlag) String() string     { return strings.Join(*s, ",") }
-func (s *stringSliceFlag) Set(v string) error { *s = append(*s, v); return nil }

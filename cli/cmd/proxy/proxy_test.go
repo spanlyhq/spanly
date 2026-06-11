@@ -4,8 +4,6 @@ import (
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/spanlyhq/spanly/cli/internal/spanly"
 )
 
 func TestParseUpstream(t *testing.T) {
@@ -50,52 +48,6 @@ func TestNormalizeBindValid(t *testing.T) {
 func TestNormalizeBindInvalid(t *testing.T) {
 	if _, err := normalizeBind("not-a-host-port"); err == nil {
 		t.Fatal("expected error for invalid bind")
-	}
-}
-
-func TestParseInspectPrefix(t *testing.T) {
-	cases := []struct {
-		in   string
-		want []string
-	}{
-		{"", nil},
-		{"/mcp", []string{"/mcp"}},
-		{"/mcp,/sse", []string{"/mcp", "/sse"}},
-		{" /mcp , /sse ", []string{"/mcp", "/sse"}},
-		{",,/mcp,", []string{"/mcp"}},
-	}
-	for _, tc := range cases {
-		got := parseInspectPrefix(tc.in)
-		if !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("parseInspectPrefix(%q) = %v, want %v", tc.in, got, tc.want)
-		}
-	}
-}
-
-func TestParseContextHeaders(t *testing.T) {
-	good, err := parseContextHeaders([]string{
-		"X-Tenant=environmentId",
-		"X-Org=organisationId",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []spanly.HeaderMapping{
-		{Header: "X-Tenant", Field: "environmentId"},
-		{Header: "X-Org", Field: "organisationId"},
-	}
-	if !reflect.DeepEqual(good, want) {
-		t.Errorf("got %+v, want %+v", good, want)
-	}
-
-	if _, err := parseContextHeaders([]string{"no-equals"}); err == nil {
-		t.Error("expected error for malformed entry")
-	}
-	if _, err := parseContextHeaders([]string{"X=invalidField"}); err == nil {
-		t.Error("expected error for unknown context field")
-	}
-	if _, err := parseContextHeaders([]string{"=environmentId"}); err == nil {
-		t.Error("expected error for empty header name")
 	}
 }
 

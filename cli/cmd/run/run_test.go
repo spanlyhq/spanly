@@ -5,8 +5,6 @@ import (
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/spanlyhq/spanly/cli/internal/spanly"
 )
 
 func TestParseArgsRequiresCommand(t *testing.T) {
@@ -100,33 +98,5 @@ func TestModeName(t *testing.T) {
 	}
 	if modeName(3000) != "http" {
 		t.Errorf("modeName(3000) = %q", modeName(3000))
-	}
-}
-
-func TestParseInspectPrefixRun(t *testing.T) {
-	cases := []struct {
-		in   string
-		want []string
-	}{
-		{"", nil},
-		{"/mcp", []string{"/mcp"}},
-		{"/mcp,/sse", []string{"/mcp", "/sse"}},
-	}
-	for _, tc := range cases {
-		got := parseInspectPrefix(tc.in)
-		if !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("parseInspectPrefix(%q) = %v, want %v", tc.in, got, tc.want)
-		}
-	}
-}
-
-func TestParseContextHeadersRun(t *testing.T) {
-	good, err := parseContextHeaders([]string{"X-Tenant=environmentId"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []spanly.HeaderMapping{{Header: "X-Tenant", Field: "environmentId"}}
-	if !reflect.DeepEqual(good, want) {
-		t.Errorf("got %+v, want %+v", good, want)
 	}
 }
