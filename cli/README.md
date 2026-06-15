@@ -2,7 +2,8 @@
 
 A small Go binary that captures traffic from your MCP server and ships it
 to [Spanly](https://spanly.com). Full documentation lives at
-[spanly.com/docs/cli](https://spanly.com/docs/cli/). Two modes:
+[spanly.com/docs/cli](https://spanly.com/docs/cli/); pricing at
+[spanly.com/pricing](https://spanly.com/pricing/). Two modes:
 
 - **`spanly run -- <cmd>`**: wraps a child MCP server you start.
   Works for both **stdio** and **HTTP** transports. Zero code change,

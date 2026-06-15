@@ -97,5 +97,6 @@ spans emitted into your APM.
 
 - [spanly.com](https://spanly.com)
 - [Documentation](https://spanly.com/docs/typescript-sdk/)
+- [Pricing](https://spanly.com/pricing/)
 - [Spanly CLI (`@spanly/spanly`)](https://github.com/spanlyhq/spanly/tree/main/cli): `run` + `proxy` modes for any language.
 - [Python SDK (`spanly`)](https://pypi.org/project/spanly/)

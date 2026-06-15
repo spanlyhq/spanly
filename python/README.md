@@ -110,5 +110,6 @@ spans emitted into your APM.
 
 - [spanly.com](https://spanly.com)
 - [Documentation](https://spanly.com/docs/python-sdk/)
+- [Pricing](https://spanly.com/pricing/)
 - [TypeScript SDK (`@spanly/sdk`)](https://www.npmjs.com/package/@spanly/sdk)
 - [Spanly CLI (`@spanly/spanly`)](https://github.com/spanlyhq/spanly/tree/main/cli)
