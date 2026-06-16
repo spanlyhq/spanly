@@ -1,6 +1,6 @@
 # @spanly/sdk
 
-TypeScript SDK for [Spanly](https://spanly.com), observability for MCP
+TypeScript SDK for [Spanly](https://spanly.com/?utm_source=npm&utm_medium=referral&utm_campaign=ts-sdk-readme), observability for MCP
 (Model Context Protocol) servers and AI agents.
 
 Wrap your MCP server in one line and Spanly captures every tool call,
@@ -51,7 +51,7 @@ spanly.monitor(mcpServer);
 That's it. All MCP traffic on `mcpServer` is now reported to your
 Spanly project.
 
-Get an API key by signing up at [spanly.com](https://spanly.com) and
+Get an API key by signing up at [spanly.com](https://spanly.com/?utm_source=npm&utm_medium=referral&utm_campaign=ts-sdk-readme) and
 creating a project.
 
 ### Per-request hooks
@@ -95,7 +95,7 @@ spans emitted into your APM.
 
 ## Links
 
-- [spanly.com](https://spanly.com)
+- [spanly.com](https://spanly.com/?utm_source=npm&utm_medium=referral&utm_campaign=ts-sdk-readme)
 - [Documentation](https://spanly.com/docs/typescript-sdk/)
 - [Pricing](https://spanly.com/pricing/)
 - [Spanly CLI (`@spanly/spanly`)](https://github.com/spanlyhq/spanly/tree/main/cli): `run` + `proxy` modes for any language.

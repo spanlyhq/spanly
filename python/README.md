@@ -1,6 +1,6 @@
 # spanly
 
-Python SDK for [Spanly](https://spanly.com), observability for MCP
+Python SDK for [Spanly](https://spanly.com/?utm_source=pypi&utm_medium=referral&utm_campaign=py-sdk-readme), observability for MCP
 (Model Context Protocol) servers and AI agents.
 
 Wrap your MCP server in one line and Spanly captures every tool call,
@@ -61,7 +61,7 @@ from spanly import SpanlyClient
 SpanlyClient().monitor(server)
 ```
 
-Get an API key by signing up at [spanly.com](https://spanly.com) and
+Get an API key by signing up at [spanly.com](https://spanly.com/?utm_source=pypi&utm_medium=referral&utm_campaign=py-sdk-readme) and
 creating a project. Region (`us` / `eu`) is encoded in the key prefix
 and auto-detected.
 
@@ -108,7 +108,7 @@ spans emitted into your APM.
 
 ## Links
 
-- [spanly.com](https://spanly.com)
+- [spanly.com](https://spanly.com/?utm_source=pypi&utm_medium=referral&utm_campaign=py-sdk-readme)
 - [Documentation](https://spanly.com/docs/python-sdk/)
 - [Pricing](https://spanly.com/pricing/)
 - [TypeScript SDK (`@spanly/sdk`)](https://www.npmjs.com/package/@spanly/sdk)
