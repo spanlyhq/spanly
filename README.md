@@ -10,10 +10,10 @@ MCP (Model Context Protocol) servers and AI agents.
 
 This repository contains three independently versioned and published artifacts:
 
-| Path        | Package                                  | Install                                      |
-| ----------- | ---------------------------------------- | -------------------------------------------- |
-| [`js/`](js)         | [`@spanly/sdk`](https://www.npmjs.com/package/@spanly/sdk) (npm)        | `npm install @spanly/sdk`                    |
-| [`python/`](python) | [`spanly`](https://pypi.org/project/spanly/) (PyPI)                    | `pip install spanly`                         |
+| Path                | Package                                                                     | Install                                      |
+| ------------------- | --------------------------------------------------------------------------- | -------------------------------------------- |
+| [`js/`](js)         | [`@spanly/sdk`](https://www.npmjs.com/package/@spanly/sdk) (npm)            | `npm install @spanly/sdk`                    |
+| [`python/`](python) | [`spanly`](https://pypi.org/project/spanly/) (PyPI)                         | `pip install spanly`                         |
 | [`cli/`](cli)       | [`@spanly/spanly`](https://www.npmjs.com/package/@spanly/spanly) / Homebrew | `npx -y @spanly/spanly run -- <mcp-command>` |
 
 ## Quick start

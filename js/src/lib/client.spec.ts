@@ -58,7 +58,7 @@ describe('requestToTransportContext', () => {
 
     const context = requestToTransportContext(
       req,
-      new Set([...DEFAULT_REDACTED_HEADERS, 'x-custom-token'])
+      new Set([...DEFAULT_REDACTED_HEADERS, 'x-custom-token']),
     );
 
     expect(context.headers).toEqual({
@@ -102,8 +102,9 @@ describe('session ID injection', () => {
   beforeEach(() => {
     jest
       .spyOn(globalThis, 'fetch')
-      .mockImplementation(async () =>
-        new Response(JSON.stringify({ success: true }), { status: 200 })
+      .mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ success: true }), { status: 200 }),
       );
   });
 
@@ -115,13 +116,13 @@ describe('session ID injection', () => {
     handleRequest(
       req: IncomingMessage,
       res: ServerResponse,
-      parsedBody?: unknown
+      parsedBody?: unknown,
     ): Promise<void>;
   }
 
   async function monitoredTransport(
     serverBehavior: (res: ServerResponse) => void,
-    options?: MonitorOptions
+    options?: MonitorOptions,
   ): Promise<MonitoredTransport> {
     const transport: MonitoredTransport = {
       handleRequest: async (req, res) => {
@@ -154,7 +155,7 @@ describe('session ID injection', () => {
     await transport.handleRequest(req, res, initializeBody);
 
     expect(String(res.getHeader('mcp-session-id'))).toMatch(
-      new RegExp(`^${SYNTHETIC_SESSION_ID_PREFIX}`)
+      new RegExp(`^${SYNTHETIC_SESSION_ID_PREFIX}`),
     );
   });
 
@@ -168,7 +169,7 @@ describe('session ID injection', () => {
     await pending;
 
     expect(String(res.getHeader('mcp-session-id'))).toMatch(
-      new RegExp(`^${SYNTHETIC_SESSION_ID_PREFIX}`)
+      new RegExp(`^${SYNTHETIC_SESSION_ID_PREFIX}`),
     );
   });
 
@@ -228,8 +229,9 @@ describe('session termination capture', () => {
   beforeEach(() => {
     jest
       .spyOn(globalThis, 'fetch')
-      .mockImplementation(async () =>
-        new Response(JSON.stringify({ success: true }), { status: 200 })
+      .mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ success: true }), { status: 200 }),
       );
   });
 
@@ -241,13 +243,13 @@ describe('session termination capture', () => {
     handleRequest(
       req: IncomingMessage,
       res: ServerResponse,
-      parsedBody?: unknown
+      parsedBody?: unknown,
     ): Promise<void>;
   }
 
   async function monitoredTransport(
     serverBehavior: (res: ServerResponse) => void,
-    options?: MonitorOptions
+    options?: MonitorOptions,
   ): Promise<MonitoredTransport> {
     const transport: MonitoredTransport = {
       handleRequest: async (req, res) => {
@@ -274,12 +276,16 @@ describe('session termination capture', () => {
   }
 
   async function collectedPackets(): Promise<
-    { direction: string; mcpPacket: Record<string, unknown>; transportContext: Record<string, unknown> }[]
+    {
+      direction: string;
+      mcpPacket: Record<string, unknown>;
+      transportContext: Record<string, unknown>;
+    }[]
   > {
     // collect() is fire-and-forget; let the pending posts run.
     await new Promise((resolve) => setImmediate(resolve));
     return (globalThis.fetch as jest.Mock).mock.calls.map(([, init]) =>
-      JSON.parse((init as RequestInit).body as string)
+      JSON.parse((init as RequestInit).body as string),
     );
   }
 
@@ -342,7 +348,7 @@ describe('session termination capture', () => {
           seen.push({ direction, method: mcpPacket.method });
           return null;
         },
-      }
+      },
     );
     const req = makeDeleteRequest({ 'mcp-session-id': 'session-2' });
     const res = new ServerResponse(req);

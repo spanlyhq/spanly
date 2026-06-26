@@ -33,13 +33,10 @@ export type SpanlyPacketTransportContextHttp = z.infer<
   typeof spanlyPacketTransportContextHttpSchema
 >;
 
-export const spanlyPacketTransportContextSchema = z.discriminatedUnion(
-  'type',
-  [
-    spanlyPacketTransportContextStdioSchema,
-    spanlyPacketTransportContextHttpSchema,
-  ]
-);
+export const spanlyPacketTransportContextSchema = z.discriminatedUnion('type', [
+  spanlyPacketTransportContextStdioSchema,
+  spanlyPacketTransportContextHttpSchema,
+]);
 
 export type SpanlyPacketTransportContext = z.infer<
   typeof spanlyPacketTransportContextSchema

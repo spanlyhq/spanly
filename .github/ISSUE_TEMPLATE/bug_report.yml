@@ -1,6 +1,6 @@
 name: Bug report
 description: Something in the SDKs or CLI does not work as documented.
-labels: ["bug"]
+labels: ['bug']
 body:
   - type: dropdown
     id: artifact
@@ -8,11 +8,11 @@ body:
       label: Artifact
       description: Which part of this repository is affected?
       options:
-        - "@spanly/sdk (TypeScript SDK, js/)"
-        - "spanly (Python SDK, python/)"
-        - "CLI (cli/)"
-        - "Helm chart / Kustomize"
-        - "Other / not sure"
+        - '@spanly/sdk (TypeScript SDK, js/)'
+        - 'spanly (Python SDK, python/)'
+        - 'CLI (cli/)'
+        - 'Helm chart / Kustomize'
+        - 'Other / not sure'
     validations:
       required: true
   - type: input
@@ -20,7 +20,7 @@ body:
     attributes:
       label: Version
       description: Package or CLI version (`spanly --version`, `npm ls @spanly/sdk`, `pip show spanly`).
-      placeholder: "0.1.1"
+      placeholder: '0.1.1'
     validations:
       required: true
   - type: textarea
@@ -39,4 +39,4 @@ body:
     id: environment
     attributes:
       label: Environment
-      placeholder: "macOS 15 / Node 22 / Python 3.12 / Docker"
+      placeholder: 'macOS 15 / Node 22 / Python 3.12 / Docker'

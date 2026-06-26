@@ -5,7 +5,7 @@ description: |
   as its own Deployment + Service, fronting an existing internal MCP server.
 type: application
 version: 0.1.0
-appVersion: "0.1.0"
+appVersion: '0.1.0'
 home: https://spanly.com
 sources:
   - https://github.com/spanlyhq/spanly

@@ -89,22 +89,22 @@ docker run -e SPANLY_API_KEY=spanly_us_... \
 spanly run [flags] -- <command> [args...]
 ```
 
-| Flag | Default | Description |
-|---|---|---|
-| `--port` | `0` | If set, runs in HTTP mode (wrapper takes this port; child gets a random one). Default `0` = stdio. |
-| `--child-port` | `0` | Port the child binds in HTTP mode. `0` = pick random unused port. |
-| `--child-port-env` | `PORT` | Env var passed to child with the chosen port. |
-| `--child-startup-timeout` | `30s` | Max wait for child to listen. |
-| `--inspect-prefix` | `/mcp,/sse` | Comma-separated path prefixes to inspect (HTTP mode). Empty = inspect all. |
-| `--context-header` | _none_ | `HEADER=field` mapping. Repeatable. Fields: `environmentId`, `projectId`, `organisationId`. |
-| `--redact-header` | _none_ | Additional header to redact from captured telemetry (HTTP mode). Repeatable. `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization` and `X-Api-Key` are always redacted. |
-| `--inject-session-id` | `true` | Assign a synthetic `Mcp-Session-Id` on initialize responses when the upstream does not set one, so sessionless servers still get session grouping (HTTP mode). The synthetic ID is stripped before requests are forwarded upstream. Disable with `--inject-session-id=false`. |
-| `--buffer-size` | `10000` | Max packets buffered when ingest is unreachable. |
-| `--retry-max-attempts` | `3` | Max POST attempts per packet. |
-| `--retry-backoff` | `1s` | Initial retry backoff (exponential). |
-| `--retry-max-backoff` | `30s` | Cap on retry backoff. |
-| `--shutdown-grace` | `10s` | Time to flush in-flight telemetry on shutdown. |
-| `--admin-addr` | _disabled_ | `/healthz`, `/readyz`, `/metrics` listener (e.g. `:9090`). |
+| Flag                      | Default     | Description                                                                                                                                                                                                                                                                   |
+| ------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--port`                  | `0`         | If set, runs in HTTP mode (wrapper takes this port; child gets a random one). Default `0` = stdio.                                                                                                                                                                            |
+| `--child-port`            | `0`         | Port the child binds in HTTP mode. `0` = pick random unused port.                                                                                                                                                                                                             |
+| `--child-port-env`        | `PORT`      | Env var passed to child with the chosen port.                                                                                                                                                                                                                                 |
+| `--child-startup-timeout` | `30s`       | Max wait for child to listen.                                                                                                                                                                                                                                                 |
+| `--inspect-prefix`        | `/mcp,/sse` | Comma-separated path prefixes to inspect (HTTP mode). Empty = inspect all.                                                                                                                                                                                                    |
+| `--context-header`        | _none_      | `HEADER=field` mapping. Repeatable. Fields: `environmentId`, `projectId`, `organisationId`.                                                                                                                                                                                   |
+| `--redact-header`         | _none_      | Additional header to redact from captured telemetry (HTTP mode). Repeatable. `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization` and `X-Api-Key` are always redacted.                                                                                              |
+| `--inject-session-id`     | `true`      | Assign a synthetic `Mcp-Session-Id` on initialize responses when the upstream does not set one, so sessionless servers still get session grouping (HTTP mode). The synthetic ID is stripped before requests are forwarded upstream. Disable with `--inject-session-id=false`. |
+| `--buffer-size`           | `10000`     | Max packets buffered when ingest is unreachable.                                                                                                                                                                                                                              |
+| `--retry-max-attempts`    | `3`         | Max POST attempts per packet.                                                                                                                                                                                                                                                 |
+| `--retry-backoff`         | `1s`        | Initial retry backoff (exponential).                                                                                                                                                                                                                                          |
+| `--retry-max-backoff`     | `30s`       | Cap on retry backoff.                                                                                                                                                                                                                                                         |
+| `--shutdown-grace`        | `10s`       | Time to flush in-flight telemetry on shutdown.                                                                                                                                                                                                                                |
+| `--admin-addr`            | _disabled_  | `/healthz`, `/readyz`, `/metrics` listener (e.g. `:9090`).                                                                                                                                                                                                                    |
 
 Examples:
 
@@ -136,10 +136,10 @@ spanly proxy localhost:3000 localhost:3001
 
 Inbound headers recognized by both `run` and `proxy`:
 
-| Header | Effect |
-|---|---|
-| `X-Spanly-Monitor-Id` | Override `spanlyMonitorId` for this request. |
-| Any header named in `--context-header` | Maps to the corresponding context field. |
+| Header                                 | Effect                                       |
+| -------------------------------------- | -------------------------------------------- |
+| `X-Spanly-Monitor-Id`                  | Override `spanlyMonitorId` for this request. |
+| Any header named in `--context-header` | Maps to the corresponding context field.     |
 
 ## Admin endpoints
 
@@ -184,6 +184,7 @@ If you front Spanly with a reverse proxy, SSE responses can stall in the
 front proxy's response buffer. Configure pass-through:
 
 **nginx:**
+
 ```nginx
 location /mcp {
     proxy_pass http://spanly:3001;
@@ -195,6 +196,7 @@ location /mcp {
 ```
 
 **Caddy:**
+
 ```caddy
 reverse_proxy spanly:3001 {
     flush_interval -1
@@ -202,23 +204,24 @@ reverse_proxy spanly:3001 {
 ```
 
 **Envoy:**
+
 - Disable response buffering on the relevant route.
 - Set `auto_host_rewrite: true` if Spanly is selected by name.
 
 ## Production deploy
 
-| Tool | Where |
-|---|---|
-| Helm chart | [`charts/spanly`](https://github.com/spanlyhq/spanly/tree/main/charts/spanly): standalone Pod + Service in front of an internal MCP. |
+| Tool                | Where                                                                                                                                                    |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Helm chart          | [`charts/spanly`](https://github.com/spanlyhq/spanly/tree/main/charts/spanly): standalone Pod + Service in front of an internal MCP.                     |
 | Kustomize component | [`kustomize/spanly-sidecar`](https://github.com/spanlyhq/spanly/tree/main/kustomize/spanly-sidecar): co-locate spanly as a sidecar in your existing Pod. |
-| Docker image | `spanly/spanly:<tag>`, `ghcr.io/spanlyhq/spanly:<tag>` |
+| Docker image        | `spanly/spanly:<tag>`, `ghcr.io/spanlyhq/spanly:<tag>`                                                                                                   |
 
 ## Environment variables
 
-| Variable | Required | Description |
-|---|---|---|
-| `SPANLY_API_KEY` | yes | Region detected from prefix (`spanly_us_*` / `spanly_eu_*`). |
-| `SPANLY_INGEST_URL` | no | Override ingest base URL (local development against a non-production stack). |
+| Variable            | Required | Description                                                                  |
+| ------------------- | -------- | ---------------------------------------------------------------------------- |
+| `SPANLY_API_KEY`    | yes      | Region detected from prefix (`spanly_us_*` / `spanly_eu_*`).                 |
+| `SPANLY_INGEST_URL` | no       | Override ingest base URL (local development against a non-production stack). |
 
 ## Development
 

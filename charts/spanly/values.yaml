@@ -1,7 +1,7 @@
 # Image to deploy. The chart's appVersion is used as the default tag.
 image:
   repository: spanly/spanly
-  tag: ""
+  tag: ''
   pullPolicy: IfNotPresent
 
 # Spanly API key. Provide via a Kubernetes Secret you create separately:
@@ -12,13 +12,13 @@ apiKey:
 
 # Optional: override the ingest URL (self-hosted, local dev).
 # Region is auto-detected from the API key prefix when empty.
-ingestURL: ""
+ingestURL: ''
 
 # `spanly proxy` configuration.
 # upstream is required: the MCP server you want to monitor.
 proxy:
-  upstream: ""                  # e.g. "http://my-mcp-svc.default.svc:3000"
-  inspectPrefix: "/mcp,/sse"
+  upstream: '' # e.g. "http://my-mcp-svc.default.svc:3000"
+  inspectPrefix: '/mcp,/sse'
   # Repeatable header→context mappings. Allowed fields:
   # environmentId, projectId, organisationId.
   contextHeaders: []
@@ -28,10 +28,10 @@ proxy:
 buffer:
   size: 10000
   retryMaxAttempts: 3
-  retryBackoff: "1s"
-  retryMaxBackoff: "30s"
+  retryBackoff: '1s'
+  retryMaxBackoff: '30s'
 
-shutdownGrace: "10s"
+shutdownGrace: '10s'
 
 # Admin server: /healthz, /readyz, /metrics.
 admin:
@@ -72,9 +72,9 @@ service:
 # Optional ServiceMonitor for Prometheus Operator to scrape the admin port.
 serviceMonitor:
   enabled: false
-  namespace: ""
-  interval: "30s"
-  scrapeTimeout: "10s"
+  namespace: ''
+  interval: '30s'
+  scrapeTimeout: '10s'
   labels: {}
 
 # Standard Kubernetes scheduling knobs.

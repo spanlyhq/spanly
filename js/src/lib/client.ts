@@ -21,7 +21,9 @@ const DEFAULT_INGEST_URLS: Record<SpanlyRegion, string> = {
 function parseRegionFromApiKey(apiKey: string): SpanlyRegion {
   if (apiKey.startsWith('spanly_us_')) return 'us';
   if (apiKey.startsWith('spanly_eu_')) return 'eu';
-  throw new Error('Invalid API key format: must start with spanly_us_ or spanly_eu_');
+  throw new Error(
+    'Invalid API key format: must start with spanly_us_ or spanly_eu_',
+  );
 }
 
 export interface SpanlyClientOptions {
@@ -33,7 +35,8 @@ export interface SpanlyClientOptions {
 // the in-flight queue is past its watermark; we back off and try again
 // rather than dropping the packet (which used to be the default behavior
 // before the batching pipeline went live).
-const COLLECT_MAX_ATTEMPTS = Number(process.env['SPANLY_COLLECT_MAX_ATTEMPTS']) || 4;
+const COLLECT_MAX_ATTEMPTS =
+  Number(process.env['SPANLY_COLLECT_MAX_ATTEMPTS']) || 4;
 const COLLECT_BACKOFF_BASE_MS = 500;
 const COLLECT_BACKOFF_MAX_MS = 5_000;
 
@@ -53,7 +56,10 @@ function parseRetryAfter(value: string | null): number | undefined {
 }
 
 function backoffDelayMs(attempt: number): number {
-  const base = Math.min(COLLECT_BACKOFF_BASE_MS * 2 ** attempt, COLLECT_BACKOFF_MAX_MS);
+  const base = Math.min(
+    COLLECT_BACKOFF_BASE_MS * 2 ** attempt,
+    COLLECT_BACKOFF_MAX_MS,
+  );
   const jitter = base * 0.2 * (Math.random() * 2 - 1); // ±20%
   return Math.max(0, Math.floor(base + jitter));
 }
@@ -83,7 +89,7 @@ interface StreamableHTTPServerTransport {
   handleRequest(
     req: IncomingMessage,
     res: ServerResponse,
-    parsedBody?: unknown
+    parsedBody?: unknown,
   ): Promise<void>;
 }
 
@@ -91,13 +97,13 @@ interface StreamableHTTPServerTransport {
 type Transport = any;
 
 function isStdioServerTransport(
-  transport: Transport
+  transport: Transport,
 ): transport is StdioServerTransport {
   return '_stdin' in transport;
 }
 
 function isStreamableHTTPServerTransport(
-  transport: Transport
+  transport: Transport,
 ): transport is StreamableHTTPServerTransport {
   return 'handleRequest' in transport;
 }
@@ -177,7 +183,7 @@ export const DEFAULT_REDACTED_HEADERS = [
 ] as const;
 
 const defaultRedactedHeaderSet: ReadonlySet<string> = new Set(
-  DEFAULT_REDACTED_HEADERS
+  DEFAULT_REDACTED_HEADERS,
 );
 
 function buildRedactedHeaderSet(extra?: string[]): ReadonlySet<string> {
@@ -191,14 +197,14 @@ function buildRedactedHeaderSet(extra?: string[]): ReadonlySet<string> {
 function redactHeader(
   key: string,
   value: string,
-  redactedHeaders: ReadonlySet<string>
+  redactedHeaders: ReadonlySet<string>,
 ): string {
   return redactedHeaders.has(key.toLowerCase()) ? '[REDACTED]' : value;
 }
 
 export function requestToTransportContext(
   req: IncomingMessage,
-  redactedHeaders: ReadonlySet<string> = defaultRedactedHeaderSet
+  redactedHeaders: ReadonlySet<string> = defaultRedactedHeaderSet,
 ): SpanlyPacketTransportContextHttp {
   return {
     type: 'http',
@@ -210,9 +216,9 @@ export function requestToTransportContext(
         redactHeader(
           key,
           Array.isArray(value) ? value.join(', ') : value || '',
-          redactedHeaders
+          redactedHeaders,
         ),
-      ])
+      ]),
     ),
     ...remoteFromRequest(req),
   };
@@ -221,7 +227,7 @@ export function requestToTransportContext(
 export function responseToTransportContext(
   res: ServerResponse,
   req: IncomingMessage,
-  redactedHeaders: ReadonlySet<string> = defaultRedactedHeaderSet
+  redactedHeaders: ReadonlySet<string> = defaultRedactedHeaderSet,
 ): SpanlyPacketTransportContextHttp {
   return {
     type: 'http',
@@ -233,9 +239,9 @@ export function responseToTransportContext(
         redactHeader(
           key,
           Array.isArray(value) ? value.join(', ') : value?.toString() || '',
-          redactedHeaders
+          redactedHeaders,
         ),
-      ])
+      ]),
     ),
     ...remoteFromRequest(req),
   };
@@ -253,7 +259,7 @@ export interface MonitorOptions {
   onCollect?: (
     direction: SpanlyPacket['direction'],
     context: SpanlyPacketContext,
-    mcpPacket: McpPacket
+    mcpPacket: McpPacket,
   ) => McpPacket | null;
   /**
    * Additional header names to redact from captured transport context,
@@ -290,7 +296,7 @@ function containsInitializeRequest(body: unknown): boolean {
       (item) =>
         item !== null &&
         typeof item === 'object' &&
-        (item as { method?: unknown }).method === 'initialize'
+        (item as { method?: unknown }).method === 'initialize',
     );
   } catch {
     return false;
@@ -300,12 +306,12 @@ function containsInitializeRequest(body: unknown): boolean {
 function headersArgContainsSessionId(arg: unknown): boolean {
   if (Array.isArray(arg)) {
     return arg.some(
-      (v) => typeof v === 'string' && v.toLowerCase() === SESSION_ID_HEADER
+      (v) => typeof v === 'string' && v.toLowerCase() === SESSION_ID_HEADER,
     );
   }
   if (arg !== null && typeof arg === 'object') {
     return Object.keys(arg).some(
-      (key) => key.toLowerCase() === SESSION_ID_HEADER
+      (key) => key.toLowerCase() === SESSION_ID_HEADER,
     );
   }
   return false;
@@ -322,7 +328,7 @@ export class SpanlyClient {
     const apiKey = options.apiKey ?? process.env.SPANLY_API_KEY;
     if (!apiKey) {
       throw new Error(
-        'Spanly API key is required. Pass it as `apiKey` in options or set the SPANLY_API_KEY environment variable.'
+        'Spanly API key is required. Pass it as `apiKey` in options or set the SPANLY_API_KEY environment variable.',
       );
     }
     this.apiKey = apiKey;
@@ -337,7 +343,7 @@ export class SpanlyClient {
     direction: SpanlyPacket['direction'],
     context: SpanlyPacketContext,
     transportContext: SpanlyPacketTransportContext,
-    body: unknown
+    body: unknown,
   ) {
     if (body === undefined) {
       return null;
@@ -358,8 +364,8 @@ export class SpanlyClient {
           context,
           transportContext,
           mcpPacket,
-        })
-      )
+        }),
+      ),
     );
 
     return results[0];
@@ -386,12 +392,15 @@ export class SpanlyClient {
       if (result.status !== 503) break;
       if (attempt === COLLECT_MAX_ATTEMPTS - 1) break;
       const retryAfterMs =
-        parseRetryAfter(result.headers.get('Retry-After')) ?? backoffDelayMs(attempt);
+        parseRetryAfter(result.headers.get('Retry-After')) ??
+        backoffDelayMs(attempt);
       await sleep(retryAfterMs);
     }
 
     if (!result || !result.ok) {
-      throw new Error(`Failed to collect MCP packet: ${result?.statusText ?? 'unknown'}`);
+      throw new Error(
+        `Failed to collect MCP packet: ${result?.statusText ?? 'unknown'}`,
+      );
     }
 
     const parsedResult = collectResultSchema.parse(await result.json());
@@ -416,7 +425,7 @@ export class SpanlyClient {
         direction: SpanlyPacket['direction'],
         transportContext: SpanlyPacketTransportContext,
         body: unknown,
-        contextOverride?: SpanlyPacketContext
+        contextOverride?: SpanlyPacketContext,
       ) => {
         if (body === undefined) return;
         const effectiveContext = contextOverride ?? context;
@@ -425,7 +434,10 @@ export class SpanlyClient {
           const parsed = parseBodies(body);
           if (parsed === null) return;
           const filtered = parsed
-            .map((p) => options.onCollect?.(direction, effectiveContext, p) ?? null)
+            .map(
+              (p) =>
+                options.onCollect?.(direction, effectiveContext, p) ?? null,
+            )
             .filter((p): p is McpPacket => p !== null);
           if (filtered.length === 0) return;
           body = filtered.length === 1 ? filtered[0] : filtered;
@@ -440,12 +452,12 @@ export class SpanlyClient {
           (error) => {
             if (options?.onError) {
               options.onError(
-                error instanceof Error ? error : new Error(String(error))
+                error instanceof Error ? error : new Error(String(error)),
               );
             } else {
               console.warn('Error collecting MCP packet', error);
             }
-          }
+          },
         );
       };
 
@@ -469,7 +481,7 @@ export class SpanlyClient {
         transport.handleRequest = async (
           req: IncomingMessage,
           res: ServerResponse,
-          parsedBody?: unknown
+          parsedBody?: unknown,
         ) => {
           // Fresh monitorId per HTTP txn → batcher pairs c→s halves on it
           // without colliding on rid across concurrent transactions.
@@ -508,7 +520,7 @@ export class SpanlyClient {
                 method: SESSION_TERMINATED_METHOD,
                 params: { sessionId: terminatedSessionId },
               },
-              txnContext
+              txnContext,
             );
           };
 
@@ -533,7 +545,7 @@ export class SpanlyClient {
               'from-client',
               requestToTransportContext(req, redactedHeaders),
               parsedBody,
-              txnContext
+              txnContext,
             );
           }
 
@@ -543,7 +555,7 @@ export class SpanlyClient {
               'from-client',
               requestToTransportContext(req, redactedHeaders),
               chunk,
-              txnContext
+              txnContext,
             );
           });
 
@@ -571,7 +583,7 @@ export class SpanlyClient {
               'to-client',
               responseToTransportContext(res, req, redactedHeaders),
               args[0],
-              txnContext
+              txnContext,
             );
             return originalWrite.apply(res, args);
           }) as typeof originalWrite;
@@ -584,7 +596,7 @@ export class SpanlyClient {
               'to-client',
               responseToTransportContext(res, req, redactedHeaders),
               args[0],
-              txnContext
+              txnContext,
             );
             maybeCollectTermination();
             return originalEnd.apply(res, args);

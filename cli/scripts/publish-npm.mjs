@@ -42,13 +42,17 @@ const GOOS_TO_NODE = { linux: 'linux', darwin: 'darwin', windows: 'win32' };
 const GOARCH_TO_NODE = { amd64: 'x64', arm64: 'arm64' };
 
 function run(cmd, args, opts = {}) {
-  console.log(`$ ${cmd} ${args.join(' ')}${opts.cwd ? `  (cwd=${opts.cwd})` : ''}`);
+  console.log(
+    `$ ${cmd} ${args.join(' ')}${opts.cwd ? `  (cwd=${opts.cwd})` : ''}`,
+  );
   return execFileSync(cmd, args, { stdio: 'inherit', ...opts });
 }
 
 function versionExists(pkg) {
   try {
-    execFileSync('npm', ['view', `${pkg}@${VERSION}`, 'version'], { stdio: 'pipe' });
+    execFileSync('npm', ['view', `${pkg}@${VERSION}`, 'version'], {
+      stdio: 'pipe',
+    });
     return true;
   } catch {
     return false;
@@ -58,12 +62,17 @@ function versionExists(pkg) {
 function loadArtifacts() {
   const artifactsPath = path.join(DIST_DIR, 'artifacts.json');
   if (!existsSync(artifactsPath)) {
-    console.error(`No artifacts.json at ${artifactsPath} — run goreleaser first.`);
+    console.error(
+      `No artifacts.json at ${artifactsPath} — run goreleaser first.`,
+    );
     process.exit(1);
   }
   const artifacts = JSON.parse(readFileSync(artifactsPath, 'utf8'));
   return artifacts.filter(
-    (a) => a.type === 'Binary' && a.goos in GOOS_TO_NODE && a.goarch in GOARCH_TO_NODE,
+    (a) =>
+      a.type === 'Binary' &&
+      a.goos in GOOS_TO_NODE &&
+      a.goarch in GOARCH_TO_NODE,
   );
 }
 
@@ -114,7 +123,10 @@ function buildWrapperPackage(platformPackages) {
   rmSync(pkgDir, { recursive: true, force: true });
   mkdirSync(binDir, { recursive: true });
 
-  copyFileSync(path.join(__dirname, 'launcher.js'), path.join(binDir, `${BIN_NAME}.js`));
+  copyFileSync(
+    path.join(__dirname, 'launcher.js'),
+    path.join(binDir, `${BIN_NAME}.js`),
+  );
   chmodSync(path.join(binDir, `${BIN_NAME}.js`), 0o755);
 
   // The CLI README doubles as the npm page for the wrapper package. LICENSE
@@ -133,8 +145,17 @@ function buildWrapperPackage(platformPackages) {
       {
         name: WRAPPER_NAME,
         version: VERSION,
-        description: 'Spanly CLI: observability for MCP servers (run + proxy modes)',
-        keywords: ['mcp', 'model-context-protocol', 'observability', 'monitoring', 'telemetry', 'cli', 'spanly'],
+        description:
+          'Spanly CLI: observability for MCP servers (run + proxy modes)',
+        keywords: [
+          'mcp',
+          'model-context-protocol',
+          'observability',
+          'monitoring',
+          'telemetry',
+          'cli',
+          'spanly',
+        ],
         repository: REPOSITORY,
         homepage: HOMEPAGE,
         bugs: `${REPOSITORY}/issues`,

@@ -7,7 +7,7 @@ name: Release CLI
 on:
   push:
     tags:
-      - "cli-v*"
+      - 'cli-v*'
 
 permissions:
   contents: write
@@ -30,7 +30,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: '1.26'
           cache-dependency-path: cli/go.sum
 
       - name: Set up Docker Buildx
@@ -56,7 +56,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: "~> v2"
+          version: '~> v2'
           # --skip=validate: OSS GoReleaser rejects the cli-v* tag as non-semver;
           # clean VERSION is threaded through ldflags / templates instead.
           args: release --clean --skip=validate
@@ -70,7 +70,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: "https://registry.npmjs.org"
+          registry-url: 'https://registry.npmjs.org'
 
       # Trusted Publishing (OIDC) — no NPM_TOKEN. publish-npm.mjs shells out to
       # `npm publish` per package, so it needs npm >= 11.5.1 (newer than the

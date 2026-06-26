@@ -27,19 +27,19 @@ Then point your MCP clients at `http://spanly.<ns>.svc:3001`.
 
 ## Common configuration
 
-| Value | Default | Notes |
-|---|---|---|
-| `proxy.upstream` | _required_ | The MCP service to front. |
-| `proxy.inspectPrefix` | `/mcp,/sse` | Comma-separated path prefixes to inspect. |
-| `proxy.contextHeaders[]` | `[]` | `HEADER=field` mappings (`environmentId`, `projectId`, `organisationId`). |
-| `apiKey.secretName` | `spanly` | Secret holding the API key. |
-| `apiKey.secretKey` | `api-key` | Key within that secret. |
-| `service.port` | `3001` | Port your MCP clients connect to. |
-| `admin.enabled` | `true` | Expose `/healthz`, `/readyz`, `/metrics`. |
-| `admin.port` | `9090` |  |
-| `serviceMonitor.enabled` | `false` | Prometheus Operator scrape config. |
-| `replicaCount` | `1` |  |
-| `resources` | small | Override per workload. |
+| Value                    | Default     | Notes                                                                     |
+| ------------------------ | ----------- | ------------------------------------------------------------------------- |
+| `proxy.upstream`         | _required_  | The MCP service to front.                                                 |
+| `proxy.inspectPrefix`    | `/mcp,/sse` | Comma-separated path prefixes to inspect.                                 |
+| `proxy.contextHeaders[]` | `[]`        | `HEADER=field` mappings (`environmentId`, `projectId`, `organisationId`). |
+| `apiKey.secretName`      | `spanly`    | Secret holding the API key.                                               |
+| `apiKey.secretKey`       | `api-key`   | Key within that secret.                                                   |
+| `service.port`           | `3001`      | Port your MCP clients connect to.                                         |
+| `admin.enabled`          | `true`      | Expose `/healthz`, `/readyz`, `/metrics`.                                 |
+| `admin.port`             | `9090`      |                                                                           |
+| `serviceMonitor.enabled` | `false`     | Prometheus Operator scrape config.                                        |
+| `replicaCount`           | `1`         |                                                                           |
+| `resources`              | small       | Override per workload.                                                    |
 
 ## Examples
 

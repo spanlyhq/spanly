@@ -5,10 +5,10 @@ Deployment using Kustomize.
 
 ## When to use this vs the Helm chart
 
-| Pattern | When |
-|---|---|
+| Pattern                           | When                                                                                 |
+| --------------------------------- | ------------------------------------------------------------------------------------ |
 | **Helm chart (`charts/spanly/`)** | Deploy spanly as its own Pod + Service in front of an existing internal MCP service. |
-| **This Kustomize component** | Deploy spanly as a sidecar container co-located in the same Pod as the MCP server. |
+| **This Kustomize component**      | Deploy spanly as a sidecar container co-located in the same Pod as the MCP server.   |
 
 ## Usage
 
@@ -27,7 +27,7 @@ Deployment using Kustomize.
    metadata:
      name: my-mcp-server
      labels:
-       spanly-sidecar: "true"   # <-- this label
+       spanly-sidecar: 'true' # <-- this label
    spec: ...
    ```
 
@@ -40,7 +40,7 @@ Deployment using Kustomize.
    resources:
      - my-deployment.yaml
    components:
-     - ../spanly-sidecar          # path to this directory
+     - ../spanly-sidecar # path to this directory
    ```
 
 4. **Override defaults** if needed via additional patches in your
@@ -49,14 +49,14 @@ Deployment using Kustomize.
 
 ## Defaults baked into `patch.yaml`
 
-| Setting | Default | How to override |
-|---|---|---|
-| Image | `spanly/spanly:latest` | `images:` field in your kustomization |
-| Upstream | `localhost:3000` | Patch `args` |
-| Bind | `:3001` | Patch `args` |
-| Inspect prefix | `/mcp,/sse` | Patch `args` |
-| Secret name | `spanly` | Patch `env` |
-| Admin port | `9090` | Patch `args` and `ports` |
+| Setting        | Default                | How to override                       |
+| -------------- | ---------------------- | ------------------------------------- |
+| Image          | `spanly/spanly:latest` | `images:` field in your kustomization |
+| Upstream       | `localhost:3000`       | Patch `args`                          |
+| Bind           | `:3001`                | Patch `args`                          |
+| Inspect prefix | `/mcp,/sse`            | Patch `args`                          |
+| Secret name    | `spanly`               | Patch `env`                           |
+| Admin port     | `9090`                 | Patch `args` and `ports`              |
 
 ## What this does
 

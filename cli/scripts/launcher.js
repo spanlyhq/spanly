@@ -20,7 +20,9 @@ try {
   process.exit(1);
 }
 
-const result = spawnSync(binaryPath, process.argv.slice(2), { stdio: 'inherit' });
+const result = spawnSync(binaryPath, process.argv.slice(2), {
+  stdio: 'inherit',
+});
 if (result.error) {
   console.error(`[spanly] failed to spawn binary: ${result.error.message}`);
   process.exit(1);
