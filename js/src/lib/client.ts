@@ -40,8 +40,6 @@ const COLLECT_MAX_ATTEMPTS =
 const COLLECT_BACKOFF_BASE_MS = 500;
 const COLLECT_BACKOFF_MAX_MS = 5_000;
 
-// Parse a Retry-After header. Seconds-form first, then HTTP-date fallback.
-// Returns ms to wait, or undefined when the header is missing or unparseable.
 function parseRetryAfter(value: string | null): number | undefined {
   if (!value) return undefined;
   const seconds = Number(value);
