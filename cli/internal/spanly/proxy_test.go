@@ -914,3 +914,129 @@ func TestProxyDoesNotRecordTerminationWithoutSessionID(t *testing.T) {
 		t.Errorf("expected 0 collect calls for a DELETE without session ID, got %d", hits)
 	}
 }
+
+func TestProxyInterceptsSyntheticSessionDelete(t *testing.T) {
+	var upstreamHits int
+	var mu sync.Mutex
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		upstreamHits++
+		mu.Unlock()
+		// A sessionless upstream would reject this DELETE; assert we never
+		// reach it, so its status here is irrelevant.
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer upstream.Close()
+
+	ingest := newFakeIngest(t, 1)
+	defer ingest.srv.Close()
+
+	proxy, _ := newProxyFor(t, upstream.URL, ingest.srv.URL, func(o *ProxyOptions) {
+		o.InjectSessionID = true
+	})
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	sessionID := NewSyntheticSessionID()
+	req, err := http.NewRequest(http.MethodDelete, proxyServer.URL+"/mcp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(SessionIDHeader, sessionID)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200 (Spanly answers the synthetic DELETE)", resp.StatusCode)
+	}
+
+	mu.Lock()
+	hits := upstreamHits
+	mu.Unlock()
+	if hits != 0 {
+		t.Errorf("upstream called %d times, want 0 (synthetic DELETE must not be forwarded)", hits)
+	}
+
+	packets := ingest.waitFor(t, 2*time.Second)
+	if len(packets) != 1 {
+		t.Fatalf("got %d packets, want 1", len(packets))
+	}
+	p := packets[0]
+	if p.Direction != "from-client" {
+		t.Errorf("direction = %q, want from-client", p.Direction)
+	}
+	var mcp struct {
+		Method string `json:"method"`
+		Params struct {
+			SessionID string `json:"sessionId"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(p.MCPPacket, &mcp); err != nil {
+		t.Fatalf("unmarshal mcpPacket: %v", err)
+	}
+	if mcp.Method != SessionTerminatedMethod {
+		t.Errorf("method = %q, want %q", mcp.Method, SessionTerminatedMethod)
+	}
+	if mcp.Params.SessionID != sessionID {
+		t.Errorf("params.sessionId = %q, want %q", mcp.Params.SessionID, sessionID)
+	}
+}
+
+func TestProxyForwardsRealSessionDeleteWhenInjecting(t *testing.T) {
+	var upstreamHits int
+	var mu sync.Mutex
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("upstream got method %q, want DELETE", r.Method)
+		}
+		mu.Lock()
+		upstreamHits++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	ingest := newFakeIngest(t, 1)
+	defer ingest.srv.Close()
+
+	proxy, _ := newProxyFor(t, upstream.URL, ingest.srv.URL, func(o *ProxyOptions) {
+		o.InjectSessionID = true
+	})
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	req, err := http.NewRequest(http.MethodDelete, proxyServer.URL+"/mcp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(SessionIDHeader, "server-issued-1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	mu.Lock()
+	hits := upstreamHits
+	mu.Unlock()
+	if hits != 1 {
+		t.Errorf("upstream called %d times, want 1 (real DELETE must still be forwarded)", hits)
+	}
+
+	packets := ingest.waitFor(t, 2*time.Second)
+	if len(packets) != 1 {
+		t.Fatalf("got %d packets, want 1", len(packets))
+	}
+	var mcp struct {
+		Method string `json:"method"`
+	}
+	if err := json.Unmarshal(packets[0].MCPPacket, &mcp); err != nil {
+		t.Fatalf("unmarshal mcpPacket: %v", err)
+	}
+	if mcp.Method != SessionTerminatedMethod {
+		t.Errorf("method = %q, want %q", mcp.Method, SessionTerminatedMethod)
+	}
+}

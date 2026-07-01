@@ -360,4 +360,44 @@ describe('session termination capture', () => {
     ]);
     expect(await collectedPackets()).toHaveLength(0);
   });
+
+  it('intercepts a DELETE for a synthetic session without reaching the server', async () => {
+    const serverBehavior = jest.fn((res: ServerResponse) => {
+      res.writeHead(200).end();
+    });
+    const transport = await monitoredTransport(serverBehavior);
+    const sessionId = `${SYNTHETIC_SESSION_ID_PREFIX}abc123`;
+    const req = makeDeleteRequest({ 'mcp-session-id': sessionId });
+    const res = new ServerResponse(req);
+
+    await transport.handleRequest(req, res);
+
+    expect(serverBehavior).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+
+    const packets = await collectedPackets();
+    expect(packets).toHaveLength(1);
+    expect(packets[0].mcpPacket).toEqual({
+      jsonrpc: '2.0',
+      method: SESSION_TERMINATED_METHOD,
+      params: { sessionId },
+    });
+  });
+
+  it('forwards a synthetic-looking DELETE to the server when injection is disabled', async () => {
+    const serverBehavior = jest.fn((res: ServerResponse) => {
+      res.writeHead(200).end();
+    });
+    const transport = await monitoredTransport(serverBehavior, {
+      injectSessionId: false,
+    });
+    const req = makeDeleteRequest({
+      'mcp-session-id': `${SYNTHETIC_SESSION_ID_PREFIX}abc123`,
+    });
+    const res = new ServerResponse(req);
+
+    await transport.handleRequest(req, res);
+
+    expect(serverBehavior).toHaveBeenCalledTimes(1);
+  });
 });

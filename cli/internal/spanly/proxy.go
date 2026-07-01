@@ -292,6 +292,20 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Spanly minted this session ID (the upstream never issued one), so the
+	// upstream can't honor a DELETE for a session it never provisioned.
+	// Forwarding it would surface a 404/405 to the client and drop the
+	// termination event (the collect below is gated on a 2xx response). Own
+	// the whole synthetic lifecycle: record the termination and answer 200
+	// here instead of forwarding the DELETE upstream.
+	if p.injectSessionID && r.Method == http.MethodDelete {
+		if sessionID := r.Header.Get(SessionIDHeader); strings.HasPrefix(sessionID, SyntheticSessionIDPrefix) {
+			p.collector.Collect("from-client", override, transport, sessionTerminatedPacket(sessionID))
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	}
+
 	outURL := *p.upstream
 	outURL.Path = singleJoiningPath(p.upstream.Path, r.URL.Path)
 	outURL.RawQuery = mergeQuery(p.upstream.RawQuery, r.URL.RawQuery)

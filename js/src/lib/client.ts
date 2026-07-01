@@ -538,6 +538,31 @@ export class SpanlyClient {
             res.setHeader(SESSION_ID_HEADER, newSyntheticSessionId());
           };
 
+          // Spanly minted this session ID (the server never issued one), so the
+          // server can't honor a DELETE for a session it never provisioned.
+          // Forwarding it would surface a 404/405 to the client and drop the
+          // termination event (the collect below is gated on a 2xx response).
+          // Own the whole synthetic lifecycle: record the termination and
+          // answer 200 here instead of handing the DELETE to the server.
+          if (
+            injectSessionId &&
+            req.method === 'DELETE' &&
+            terminatedSessionId?.startsWith(SYNTHETIC_SESSION_ID_PREFIX)
+          ) {
+            collect(
+              'from-client',
+              requestToTransportContext(req, redactedHeaders),
+              {
+                jsonrpc: '2.0',
+                method: SESSION_TERMINATED_METHOD,
+                params: { sessionId: terminatedSessionId },
+              },
+              txnContext,
+            );
+            res.writeHead(200).end();
+            return;
+          }
+
           if (parsedBody !== undefined) {
             collect(
               'from-client',
