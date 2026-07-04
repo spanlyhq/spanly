@@ -83,6 +83,20 @@ describe('responseToTransportContext', () => {
       'content-type': 'text/event-stream',
     });
   });
+
+  it('captures the response status code and rate-limit headers', () => {
+    const req = makeRequest({});
+    const res = new ServerResponse(req);
+    res.statusCode = 429;
+    res.setHeader('Retry-After', '30');
+    res.setHeader('RateLimit-Remaining', '0');
+
+    const context = responseToTransportContext(res, req);
+
+    expect(context.statusCode).toBe(429);
+    expect(context.headers['retry-after']).toBe('30');
+    expect(context.headers['ratelimit-remaining']).toBe('0');
+  });
 });
 
 describe('session ID injection', () => {

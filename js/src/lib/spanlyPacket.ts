@@ -27,6 +27,10 @@ export const spanlyPacketTransportContextHttpSchema = z.object({
   headers: z.record(z.string(), z.string()),
   remoteAddress: z.string().optional(),
   remotePort: z.number().optional(),
+  // Response HTTP status code. Only set on the response leg of an exchange;
+  // absent on request legs and on stdio. Rate-limit signals (429 +
+  // Retry-After / RateLimit-* headers) are read from `headers` downstream.
+  statusCode: z.number().optional(),
 });
 
 export type SpanlyPacketTransportContextHttp = z.infer<

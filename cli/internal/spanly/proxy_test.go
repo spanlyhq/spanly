@@ -139,6 +139,57 @@ func TestProxyForwardsRequestAndCollectsBoth(t *testing.T) {
 	if from.TransportContext.Path != "/mcp" {
 		t.Errorf("from path = %q", from.TransportContext.Path)
 	}
+	if to.TransportContext.StatusCode != http.StatusOK {
+		t.Errorf("to statusCode = %d, want 200", to.TransportContext.StatusCode)
+	}
+	if from.TransportContext.StatusCode != 0 {
+		t.Errorf("from statusCode = %d, want 0 (request leg has no status)", from.TransportContext.StatusCode)
+	}
+}
+
+func TestProxyCapturesStatusAndRateLimitHeaders(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "30")
+		w.Header().Set("RateLimit-Remaining", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":7,"error":{"code":-32000,"message":"rate limited"}}`))
+	}))
+	defer upstream.Close()
+
+	ingest := newFakeIngest(t, 2)
+	defer ingest.srv.Close()
+
+	proxy, _ := newProxyFor(t, upstream.URL, ingest.srv.URL)
+	proxyServer := httptest.NewServer(proxy)
+	defer proxyServer.Close()
+
+	resp, err := http.Post(proxyServer.URL+"/mcp", "application/json",
+		strings.NewReader(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"x"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	packets := ingest.waitFor(t, 2*time.Second)
+	var to *SpanlyPacket
+	for i := range packets {
+		if packets[i].Direction == "to-client" {
+			to = &packets[i]
+		}
+	}
+	if to == nil {
+		t.Fatalf("expected a to-client packet, got %+v", packets)
+	}
+	if to.TransportContext.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("statusCode = %d, want 429", to.TransportContext.StatusCode)
+	}
+	if got := to.TransportContext.Headers["retry-after"]; got != "30" {
+		t.Errorf("retry-after header = %q, want 30", got)
+	}
+	if got := to.TransportContext.Headers["ratelimit-remaining"]; got != "0" {
+		t.Errorf("ratelimit-remaining header = %q, want 0", got)
+	}
 }
 
 func TestProxyStreamsSSEAndEmitsPerFrame(t *testing.T) {

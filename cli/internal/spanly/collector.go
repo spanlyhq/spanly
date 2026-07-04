@@ -21,6 +21,11 @@ type TransportContext struct {
 	HTTPMethod string            `json:"httpMethod,omitempty"`
 	Path       string            `json:"path,omitempty"`
 	Headers    map[string]string `json:"headers,omitempty"`
+	// StatusCode is the upstream response status code, set only on the
+	// response leg of an HTTP exchange (0/omitted on request legs and
+	// stdio). Rate-limit signals (429 + Retry-After / RateLimit-* headers)
+	// are read from Headers downstream.
+	StatusCode int `json:"statusCode,omitempty"`
 }
 
 // PacketContext carries identity and tenant attribution for a packet.

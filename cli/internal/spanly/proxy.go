@@ -385,6 +385,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.StatusCode)
 
 	respTransport := p.httpTransportContext(r, resp.Header)
+	respTransport.StatusCode = resp.StatusCode
 
 	if isSSE(resp.Header.Get("Content-Type")) {
 		p.streamSSE(w, resp.Body, override, respTransport)

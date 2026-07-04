@@ -241,6 +241,7 @@ export function responseToTransportContext(
         ),
       ]),
     ),
+    statusCode: res.statusCode,
     ...remoteFromRequest(req),
   };
 }
