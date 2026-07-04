@@ -42,6 +42,17 @@ export type SpanlyPacketTransportContext = z.infer<
   typeof spanlyPacketTransportContextSchema
 >;
 
+// Present only when the producer could not buffer the full frame for
+// inspection (> 16 MiB in the CLI proxy/stdio). The frame is forwarded to
+// the peer untouched, but `mcpPacket` here is a metadata-only stub, not the
+// real body. `originalSize` is the true wire size so ClickHouse
+// input/outputSize and size-based checks see the real magnitude.
+export const spanlyPacketOversizedSchema = z.object({
+  originalSize: z.number(),
+});
+
+export type SpanlyPacketOversized = z.infer<typeof spanlyPacketOversizedSchema>;
+
 export const spanlyPacketContextSchema = z.object({
   spanlyClientId: z.string(),
   spanlyMonitorId: z.string(),
@@ -58,6 +69,7 @@ export const spanlyPacketSchema = z.object({
   context: spanlyPacketContextSchema,
   transportContext: spanlyPacketTransportContextSchema,
   mcpPacket: mcpPacketSchema,
+  oversized: spanlyPacketOversizedSchema.optional(),
 });
 
 export type SpanlyPacket = z.infer<typeof spanlyPacketSchema>;

@@ -311,8 +311,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	outURL.RawQuery = mergeQuery(p.upstream.RawQuery, r.URL.RawQuery)
 
 	var outBody io.Reader = bytes.NewReader(requestBody)
+	var requestTail *countingReader
 	if requestOversized {
-		outBody = io.MultiReader(bytes.NewReader(requestBody), r.Body)
+		requestTail = &countingReader{r: r.Body}
+		outBody = io.MultiReader(bytes.NewReader(requestBody), requestTail)
 	}
 	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, outURL.String(), outBody)
 	if err != nil {
@@ -341,6 +343,21 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+
+	// The oversized request body has now been streamed upstream, so requestTail
+	// carries the true size of the tail we never buffered. Emit a metadata-only
+	// event (see GAP-3 in docs/LIVE_SCAN_CAPTURE_GUARANTEES.md): the span stays
+	// visible to aggregations and size-based checks instead of vanishing. The
+	// timestamp is post-upload, so a huge upload slightly inflates the recorded
+	// start; acceptable for a case that would otherwise be invisible.
+	if requestOversized {
+		if stub := BuildOversizedStub(requestBody); stub != nil {
+			p.collector.CollectOversized(
+				"from-client", override, transport, stub,
+				int64(len(requestBody))+requestTail.n.Load(),
+			)
+		}
+	}
 
 	if p.injectSessionID &&
 		r.Method == http.MethodPost &&
@@ -379,7 +396,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("spanly: failed to read upstream response: %v", err)
 		return
 	}
-	if len(responseBody) <= MaxInspectBytes {
+	responseOversized := len(responseBody) > MaxInspectBytes
+	if !responseOversized {
 		if packet, ok := ParseMCPPacket(responseBody); ok {
 			p.collector.Collect("to-client", override, respTransport, packet)
 		}
@@ -388,8 +406,21 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("spanly: failed to write response to client: %v", err)
 		return
 	}
-	if _, err := io.Copy(w, resp.Body); err != nil {
+	tail, err := io.Copy(w, resp.Body)
+	if err != nil {
 		log.Printf("spanly: failed to write response to client: %v", err)
+	}
+	// Metadata-only event for the oversized response (GAP-3): the true size
+	// lets SPLY-388 see its own tail — the largest results, which it exists to
+	// flag — and stops aggregations under-counting these spans. The stub pairs
+	// with the (small) request half, which carries the method and tool name.
+	if responseOversized {
+		if stub := BuildOversizedStub(responseBody); stub != nil {
+			p.collector.CollectOversized(
+				"to-client", override, respTransport, stub,
+				int64(len(responseBody))+tail,
+			)
+		}
 	}
 }
 

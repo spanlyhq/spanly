@@ -41,6 +41,16 @@ type SpanlyPacket struct {
 	Context          PacketContext    `json:"context"`
 	TransportContext TransportContext `json:"transportContext"`
 	MCPPacket        json.RawMessage  `json:"mcpPacket"`
+
+	// Oversized is set only when the frame exceeded MaxInspectBytes and
+	// could not be buffered for inspection. MCPPacket is then a metadata-only
+	// stub; OriginalSize carries the true wire size. Omitted otherwise.
+	Oversized *OversizedInfo `json:"oversized,omitempty"`
+}
+
+// OversizedInfo carries the true wire size of a frame too large to buffer.
+type OversizedInfo struct {
+	OriginalSize int64 `json:"originalSize"`
 }
 
 // Sink consumes packets exported from the Collector. Implementations
@@ -177,6 +187,32 @@ func (c *Collector) Close(grace time.Duration) error {
 // precedence over the collector defaults. Pass a zero-value PacketContext
 // to use only the collector defaults.
 func (c *Collector) Collect(direction string, override PacketContext, transport TransportContext, mcp json.RawMessage) {
+	c.enqueue(SpanlyPacket{
+		Timestamp:        time.Now().UnixMilli(),
+		Direction:        direction,
+		Context:          c.mergeContext(override),
+		TransportContext: transport,
+		MCPPacket:        mcp,
+	})
+}
+
+// CollectOversized enqueues a metadata-only event for a frame too large to
+// buffer for inspection (> MaxInspectBytes). The frame itself is forwarded to
+// the peer untouched; mcp is a stub carrying just method/id/tool name, and
+// originalSize is the true wire size so aggregations and size-based checks see
+// the real magnitude instead of dropping the span entirely.
+func (c *Collector) CollectOversized(direction string, override PacketContext, transport TransportContext, mcp json.RawMessage, originalSize int64) {
+	c.enqueue(SpanlyPacket{
+		Timestamp:        time.Now().UnixMilli(),
+		Direction:        direction,
+		Context:          c.mergeContext(override),
+		TransportContext: transport,
+		MCPPacket:        mcp,
+		Oversized:        &OversizedInfo{OriginalSize: originalSize},
+	})
+}
+
+func (c *Collector) mergeContext(override PacketContext) PacketContext {
 	ctx := PacketContext{
 		SpanlyClientId:  c.opts.ClientID,
 		SpanlyMonitorId: c.opts.MonitorID,
@@ -196,15 +232,10 @@ func (c *Collector) Collect(direction string, override PacketContext, transport 
 	if override.OrganisationId != "" {
 		ctx.OrganisationId = override.OrganisationId
 	}
+	return ctx
+}
 
-	packet := SpanlyPacket{
-		Timestamp:        time.Now().UnixMilli(),
-		Direction:        direction,
-		Context:          ctx,
-		TransportContext: transport,
-		MCPPacket:        mcp,
-	}
-
+func (c *Collector) enqueue(packet SpanlyPacket) {
 	select {
 	case c.queue <- packet:
 		c.collected.Add(1)

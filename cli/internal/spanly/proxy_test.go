@@ -455,7 +455,7 @@ func TestProxyIgnoresNonJSONRPCBody(t *testing.T) {
 	}
 }
 
-func TestProxyForwardsOversizedBodyWithoutTelemetry(t *testing.T) {
+func TestProxyForwardsOversizedRequestAndEmitsMetadata(t *testing.T) {
 	var upstreamGot atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n, _ := io.Copy(io.Discard, r.Body)
@@ -464,19 +464,18 @@ func TestProxyForwardsOversizedBodyWithoutTelemetry(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	ingest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"success":true}`))
-	}))
-	defer ingest.Close()
+	ingest := newFakeIngest(t, 1)
+	defer ingest.srv.Close()
 
-	p, c := newProxyFor(t, upstream.URL, ingest.URL)
+	p, _ := newProxyFor(t, upstream.URL, ingest.srv.URL)
 	front := httptest.NewServer(p)
 	defer front.Close()
 
-	// A valid JSON-RPC body padded past the inspection cap: it must reach
-	// the upstream complete but never be buffered into telemetry.
-	body := `{"jsonrpc":"2.0","method":"x","params":{"pad":"` +
-		strings.Repeat("a", MaxInspectBytes) + `"}}`
+	// A valid tools/call request padded past the inspection cap: the full body
+	// must reach the upstream, and a metadata-only event (method + tool name +
+	// true size, no buffered body) must be emitted.
+	body := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"bigtool","arguments":{"pad":"` +
+		strings.Repeat("a", MaxInspectBytes) + `"}}}`
 
 	resp, err := http.Post(front.URL+"/mcp", "application/json", strings.NewReader(body))
 	if err != nil {
@@ -490,8 +489,87 @@ func TestProxyForwardsOversizedBodyWithoutTelemetry(t *testing.T) {
 	if got := upstreamGot.Load(); got != int64(len(body)) {
 		t.Errorf("upstream received %d bytes, want %d", got, len(body))
 	}
-	if got := c.Metrics().Collected; got != 0 {
-		t.Errorf("collected %d packets, want 0 for oversized body", got)
+
+	packets := ingest.waitFor(t, 2*time.Second)
+	if len(packets) != 1 {
+		t.Fatalf("expected 1 metadata packet, got %d", len(packets))
+	}
+	got := packets[0]
+	if got.Direction != "from-client" {
+		t.Errorf("direction = %q, want from-client", got.Direction)
+	}
+	if got.Oversized == nil {
+		t.Fatal("expected Oversized to be set")
+	}
+	if got.Oversized.OriginalSize != int64(len(body)) {
+		t.Errorf("OriginalSize = %d, want %d", got.Oversized.OriginalSize, len(body))
+	}
+	if len(got.MCPPacket) >= MaxInspectBytes {
+		t.Errorf("stub packet is %d bytes, expected a small metadata stub", len(got.MCPPacket))
+	}
+	var stub struct {
+		Method string `json:"method"`
+		Params struct {
+			Name string `json:"name"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(got.MCPPacket, &stub); err != nil {
+		t.Fatalf("stub not valid JSON: %v", err)
+	}
+	if stub.Method != "tools/call" {
+		t.Errorf("stub method = %q, want tools/call", stub.Method)
+	}
+	if stub.Params.Name != "bigtool" {
+		t.Errorf("stub tool name = %q, want bigtool", stub.Params.Name)
+	}
+}
+
+func TestProxyForwardsOversizedResponseAndEmitsMetadata(t *testing.T) {
+	big := `{"jsonrpc":"2.0","id":9,"result":{"content":[{"type":"text","text":"` +
+		strings.Repeat("b", MaxInspectBytes) + `"}]}}`
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, big)
+	}))
+	defer upstream.Close()
+
+	// Two events: the (small) request and the oversized response.
+	ingest := newFakeIngest(t, 2)
+	defer ingest.srv.Close()
+
+	p, _ := newProxyFor(t, upstream.URL, ingest.srv.URL)
+	front := httptest.NewServer(p)
+	defer front.Close()
+
+	reqBody := `{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"x"}}`
+	resp, err := http.Post(front.URL+"/mcp", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(big) {
+		t.Errorf("client received %d bytes, want the full %d-byte response", len(got), len(big))
+	}
+
+	packets := ingest.waitFor(t, 2*time.Second)
+	var oversized *SpanlyPacket
+	for i := range packets {
+		if packets[i].Oversized != nil {
+			oversized = &packets[i]
+		}
+	}
+	if oversized == nil {
+		t.Fatal("expected an oversized metadata packet for the response")
+	}
+	if oversized.Direction != "to-client" {
+		t.Errorf("direction = %q, want to-client", oversized.Direction)
+	}
+	if oversized.Oversized.OriginalSize != int64(len(big)) {
+		t.Errorf("OriginalSize = %d, want %d", oversized.Oversized.OriginalSize, len(big))
 	}
 }
 

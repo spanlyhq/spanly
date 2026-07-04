@@ -2,6 +2,7 @@ package run
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -87,31 +88,40 @@ func runStdio(ctx context.Context, cfg *config, collector *spanly.Collector) (in
 	return 1, exitErr
 }
 
-// forwardJSONRPC reads line-delimited frames from in, copies each line to
-// out unchanged, and ships any line that parses as a JSON-RPC 2.0 packet
-// to the collector with the given direction and transport context.
+// forwardJSONRPC reads line-delimited frames from in, copies each line to out
+// unchanged, and ships any line that parses as a JSON-RPC 2.0 packet to the
+// collector with the given direction and transport context.
 //
-// The bufio.Scanner buffer is reused across iterations, so we clone the
-// JSON-RPC payload before enqueueing — the collector retains the bytes
-// asynchronously.
+// A line over MaxInspectBytes is still forwarded whole (a bufio.Scanner would
+// instead fail with ErrTooLong and abandon the rest of the stream), and a
+// metadata-only event is emitted for it (see GAP-3 in
+// docs/LIVE_SCAN_CAPTURE_GUARANTEES.md) so the oversized frame stays visible to
+// aggregations and size-based checks. The line buffer is reused across
+// iterations, so the JSON-RPC payload is cloned before enqueueing — the
+// collector retains the bytes asynchronously.
 func forwardJSONRPC(in io.Reader, out io.Writer, direction string, collector *spanly.Collector, transport spanly.TransportContext) {
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 64*1024), spanly.MaxInspectBytes)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if packet, ok := spanly.ParseMCPPacket(line); ok {
-			collector.Collect(direction, spanly.PacketContext{}, transport, slices.Clone(packet))
+	reader := bufio.NewReaderSize(in, 64*1024)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			if _, werr := out.Write(line); werr != nil {
+				log.Printf("forward write: %v", werr)
+				return
+			}
+			frame := bytes.TrimSuffix(line, []byte{'\n'})
+			if len(frame) > spanly.MaxInspectBytes {
+				if stub := spanly.BuildOversizedStub(frame); stub != nil {
+					collector.CollectOversized(direction, spanly.PacketContext{}, transport, stub, int64(len(frame)))
+				}
+			} else if packet, ok := spanly.ParseMCPPacket(frame); ok {
+				collector.Collect(direction, spanly.PacketContext{}, transport, slices.Clone(packet))
+			}
 		}
-		if _, err := out.Write(line); err != nil {
-			log.Printf("forward write: %v", err)
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("forward read: %v", err)
+			}
 			return
 		}
-		if _, err := out.Write([]byte{'\n'}); err != nil {
-			log.Printf("forward write: %v", err)
-			return
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		log.Printf("forward scan: %v", err)
 	}
 }
