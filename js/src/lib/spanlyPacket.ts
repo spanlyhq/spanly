@@ -74,6 +74,12 @@ export const spanlyPacketSchema = z.object({
   transportContext: spanlyPacketTransportContextSchema,
   mcpPacket: mcpPacketSchema,
   oversized: spanlyPacketOversizedSchema.optional(),
+  // Process-global monotonic capture-order stamp (first packet is 1).
+  // `timestamp` has only ms precision, so concurrent frames can tie;
+  // sequence disambiguates ordering within an already-grouped session.
+  // Optional: packets from producers predating this field default to 0
+  // downstream.
+  sequence: z.number().optional(),
 });
 
 export type SpanlyPacket = z.infer<typeof spanlyPacketSchema>;

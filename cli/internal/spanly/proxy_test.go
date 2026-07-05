@@ -1169,3 +1169,30 @@ func TestProxyForwardsRealSessionDeleteWhenInjecting(t *testing.T) {
 		t.Errorf("method = %q, want %q", mcp.Method, SessionTerminatedMethod)
 	}
 }
+
+func TestStdioSessionTerminatedPacket(t *testing.T) {
+	packet := StdioSessionTerminatedPacket()
+	if packet == nil {
+		t.Fatal("packet is nil")
+	}
+	var parsed struct {
+		JSONRPC string            `json:"jsonrpc"`
+		Method  string            `json:"method"`
+		Params  map[string]string `json:"params"`
+	}
+	if err := json.Unmarshal(packet, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if parsed.JSONRPC != "2.0" {
+		t.Errorf("jsonrpc = %q", parsed.JSONRPC)
+	}
+	if parsed.Method != SessionTerminatedMethod {
+		t.Errorf("method = %q, want %q", parsed.Method, SessionTerminatedMethod)
+	}
+	if len(parsed.Params) != 0 {
+		t.Errorf("params = %v, want empty (stdio has no session ID)", parsed.Params)
+	}
+	if _, ok := ParseMCPPacket(packet); !ok {
+		t.Error("packet does not parse as a JSON-RPC 2.0 frame")
+	}
+}

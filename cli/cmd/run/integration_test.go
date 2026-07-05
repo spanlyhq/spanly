@@ -197,7 +197,21 @@ func TestRunStdioEchoesAndCollects(t *testing.T) {
 	}
 
 	// Trigger graceful child exit by closing stdin → cat sees EOF → exits.
+	// The wrapper then records the pipe close as a synthetic termination
+	// notification (GAP-2) before shutting the collector down.
 	_ = stdin.Close()
+
+	termTimeout := time.After(3 * time.Second)
+	for {
+		select {
+		case body := <-ingestCh:
+			if strings.Contains(string(body), `"spanly/session/terminated"`) {
+				return
+			}
+		case <-termTimeout:
+			t.Fatal("no session-terminated packet after stdio close")
+		}
+	}
 }
 
 func TestRunHTTPProxiesAndCollects(t *testing.T) {

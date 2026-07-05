@@ -79,6 +79,12 @@ func runStdio(ctx context.Context, cfg *config, collector *spanly.Collector) (in
 	close(done)
 	<-stdoutDone
 
+	// The pipe is closed in both directions: nothing else will be captured
+	// for this session. Record the end explicitly — without it a clean stdio
+	// shutdown is indistinguishable from an abandoned session (GAP-2). The
+	// collector is still open here; the caller's Close() flushes the queue.
+	collector.Collect("from-client", spanly.PacketContext{}, transport, spanly.StdioSessionTerminatedPacket())
+
 	if exitErr == nil {
 		return 0, nil
 	}

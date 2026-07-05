@@ -182,6 +182,38 @@ func TestCollectAppliesContextOverride(t *testing.T) {
 	}
 }
 
+func TestCollectStampsMonotonicSequence(t *testing.T) {
+	received := make(chan SpanlyPacket, 3)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p SpanlyPacket
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		received <- p
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer srv.Close()
+
+	sink := newSink(t, "spanly_us_key", srv.URL)
+	c := mustCollector(t, CollectorOptions{ClientID: "cid", MonitorID: "mid"}, sink)
+	c.Start()
+	t.Cleanup(func() { _ = c.Close(time.Second) })
+
+	transport := TransportContext{Type: "stdio"}
+	c.Collect("from-client", PacketContext{}, transport, json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
+	c.CollectOversized("to-client", PacketContext{}, transport, json.RawMessage(`{"jsonrpc":"2.0","id":1}`), 42)
+	c.Collect("to-client", PacketContext{}, transport, json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+
+	for want := uint64(1); want <= 3; want++ {
+		select {
+		case p := <-received:
+			if p.Sequence != want {
+				t.Errorf("Sequence = %d, want %d", p.Sequence, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for packet %d", want)
+		}
+	}
+}
+
 func TestCollectorBufferDropsWhenFull(t *testing.T) {
 	// Block ingest so packets pile up in the buffer.
 	block := make(chan struct{})
@@ -411,7 +443,7 @@ func TestPacketJSONFieldNames(t *testing.T) {
 	for _, field := range []string{
 		`"timestamp":`, `"direction":`, `"context":`, `"spanlyClientId":`,
 		`"spanlyMonitorId":`, `"transportContext":`, `"httpMethod":`, `"mcpPacket":`,
-		`"environmentId":`, `"projectId":`,
+		`"environmentId":`, `"projectId":`, `"sequence":`,
 	} {
 		if !strings.Contains(s, field) {
 			t.Errorf("serialized packet missing field %s: %s", field, s)

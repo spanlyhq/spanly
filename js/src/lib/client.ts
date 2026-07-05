@@ -321,6 +321,12 @@ export class SpanlyClient {
   public url: string;
   public apiKey: string;
 
+  // Capture-order stamp shared by every monitored transport of this client.
+  // Deliberately not per-monitorId: the HTTP path mints a fresh monitorId
+  // per transaction, which would reset a per-monitor counter on every
+  // exchange. See spanlyPacketSchema.sequence.
+  private sequence = 0;
+
   constructor(options: SpanlyClientOptions) {
     this.clientId = crypto.randomUUID();
 
@@ -363,6 +369,7 @@ export class SpanlyClient {
           context,
           transportContext,
           mcpPacket,
+          sequence: ++this.sequence,
         }),
       ),
     );
@@ -472,6 +479,23 @@ export class SpanlyClient {
         transport._stdout.on('data', (chunk) => {
           collect('to-client', transportContext, chunk);
         });
+
+        // stdio has no close message on the wire: when the client goes away
+        // the pipe just ends. Record the end explicitly so a clean shutdown
+        // is distinguishable from an abandoned session (GAP-2). Both 'end'
+        // and 'close' can fire (or only 'close' on destroy), hence the guard.
+        let terminationCollected = false;
+        const collectTermination = () => {
+          if (terminationCollected) return;
+          terminationCollected = true;
+          collect('from-client', transportContext, {
+            jsonrpc: '2.0',
+            method: SESSION_TERMINATED_METHOD,
+            params: {},
+          });
+        };
+        transport._stdin.on('end', collectTermination);
+        transport._stdin.on('close', collectTermination);
       } else if (isStreamableHTTPServerTransport(transport)) {
         const redactedHeaders = buildRedactedHeaderSet(options?.redactHeaders);
         const injectSessionId = options?.injectSessionId ?? true;

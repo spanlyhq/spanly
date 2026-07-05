@@ -59,6 +59,24 @@ func sessionTerminatedPacket(sessionID string) json.RawMessage {
 	return packet
 }
 
+// StdioSessionTerminatedPacket builds the synthetic JSON-RPC packet recorded
+// when a stdio pipe closes. stdio has no transport-level session ID and no
+// close message on the wire, so params stays empty; the packet only marks
+// that the wrapper observed a clean end of the pipe (vs. the session simply
+// going quiet). Mirrors the HTTP DELETE path above (GAP-2,
+// docs/LIVE_SCAN_CAPTURE_GUARANTEES.md).
+func StdioSessionTerminatedPacket() json.RawMessage {
+	packet, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"method":  SessionTerminatedMethod,
+		"params":  map[string]string{},
+	})
+	if err != nil {
+		return nil
+	}
+	return packet
+}
+
 // NewSyntheticSessionID returns a fresh session ID carrying the Spanly
 // synthetic prefix.
 func NewSyntheticSessionID() string {

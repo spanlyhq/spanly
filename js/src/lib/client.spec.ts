@@ -1,5 +1,6 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
+import { PassThrough } from 'node:stream';
 import {
   DEFAULT_REDACTED_HEADERS,
   MonitorOptions,
@@ -413,5 +414,101 @@ describe('session termination capture', () => {
     await transport.handleRequest(req, res);
 
     expect(serverBehavior).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('stdio monitoring', () => {
+  beforeEach(() => {
+    jest
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ success: true }), { status: 200 }),
+      );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  interface StdioTransport {
+    _stdin: PassThrough;
+    _stdout: PassThrough;
+  }
+
+  async function monitoredStdioTransport(
+    options?: MonitorOptions,
+  ): Promise<StdioTransport> {
+    const transport: StdioTransport = {
+      _stdin: new PassThrough(),
+      _stdout: new PassThrough(),
+    };
+    const connected: unknown[] = [];
+    const mcpServer = {
+      connect: async (t: unknown) => {
+        connected.push(t);
+      },
+    };
+    const client = new SpanlyClient({ apiKey: 'spanly_us_test' });
+    client.monitor(mcpServer, options);
+    await mcpServer.connect(transport);
+    return transport;
+  }
+
+  async function collectedPackets(): Promise<
+    {
+      direction: string;
+      sequence: number;
+      mcpPacket: Record<string, unknown>;
+      transportContext: Record<string, unknown>;
+    }[]
+  > {
+    // collect() is fire-and-forget; let the pending posts run.
+    await new Promise((resolve) => setImmediate(resolve));
+    return (globalThis.fetch as jest.Mock).mock.calls.map(([, init]) =>
+      JSON.parse((init as RequestInit).body as string),
+    );
+  }
+
+  it('stamps packets with a monotonic capture sequence', async () => {
+    const transport = await monitoredStdioTransport();
+
+    transport._stdin.write(
+      Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' })),
+    );
+    transport._stdout.write(
+      Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} })),
+    );
+
+    const packets = await collectedPackets();
+    expect(packets).toHaveLength(2);
+    expect(packets.map((p) => p.sequence)).toEqual([1, 2]);
+    expect(packets[0].transportContext).toEqual({ type: 'stdio' });
+  });
+
+  it('records a single termination when the stdio pipe closes', async () => {
+    const transport = await monitoredStdioTransport();
+
+    transport._stdin.write(
+      Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' })),
+    );
+    // end() fires both 'end' and 'close' on a PassThrough; the once-guard
+    // must collapse them into one termination packet.
+    transport._stdin.end();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const packets = await collectedPackets();
+    const terminations = packets.filter(
+      (p) => p.mcpPacket.method === SESSION_TERMINATED_METHOD,
+    );
+    expect(terminations).toHaveLength(1);
+    expect(terminations[0].direction).toBe('from-client');
+    expect(terminations[0].mcpPacket).toEqual({
+      jsonrpc: '2.0',
+      method: SESSION_TERMINATED_METHOD,
+      params: {},
+    });
+    expect(terminations[0].transportContext).toEqual({ type: 'stdio' });
+    expect(terminations[0].sequence).toBe(2);
   });
 });

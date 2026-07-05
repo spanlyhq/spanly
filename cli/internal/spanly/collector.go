@@ -47,6 +47,14 @@ type SpanlyPacket struct {
 	TransportContext TransportContext `json:"transportContext"`
 	MCPPacket        json.RawMessage  `json:"mcpPacket"`
 
+	// Sequence is a process-global monotonic capture-order stamp (first
+	// packet is 1). Timestamp has only ms precision, so concurrent frames
+	// can tie; sequence disambiguates ordering within an already-grouped
+	// session. Deliberately not per-monitorId: the SDK's HTTP path mints a
+	// fresh monitorId per transaction, which would reset a per-monitor
+	// counter to 1 on every exchange.
+	Sequence uint64 `json:"sequence"`
+
 	// Oversized is set only when the frame exceeded MaxInspectBytes and
 	// could not be buffered for inspection. MCPPacket is then a metadata-only
 	// stub; OriginalSize carries the true wire size. Omitted otherwise.
@@ -119,6 +127,7 @@ type Collector struct {
 
 	collected   atomic.Int64
 	droppedFull atomic.Int64
+	sequence    atomic.Uint64
 }
 
 // NewCollector returns a Collector that fans packets out to one or more
@@ -241,6 +250,7 @@ func (c *Collector) mergeContext(override PacketContext) PacketContext {
 }
 
 func (c *Collector) enqueue(packet SpanlyPacket) {
+	packet.Sequence = c.sequence.Add(1)
 	select {
 	case c.queue <- packet:
 		c.collected.Add(1)
